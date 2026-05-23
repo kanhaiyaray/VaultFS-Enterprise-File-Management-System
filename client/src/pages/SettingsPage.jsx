@@ -1,0 +1,481 @@
+import { useState, useEffect, useRef } from "react";
+import {
+  Settings, User, Lock, Bell, Webhook, Shield,
+  Loader2, CheckCircle2, Eye, EyeOff, Save, Trash2,
+  Mail, Download, Key, Smartphone, LogOut, AlertTriangle,
+} from "lucide-react";
+import api from "../utils/api";
+import { useAuth } from "../context/AuthContext";
+import toast from "react-hot-toast";
+import EmailVerificationBanner from "../components/EmailVerificationBanner";
+import WebhooksTab              from "../components/WebhooksTab";
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+function Section({ title, description, children }) {
+  return (
+    <div className="card p-5 space-y-4">
+      <div className="border-b border-surface-3 pb-3">
+        <h3 className="font-display font-semibold text-white text-sm">{title}</h3>
+        {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function PillToggle({ value, onChange }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={!!value}
+      onClick={() => onChange(!value)}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full border-2 border-transparent cursor-pointer transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
+        value ? "bg-brand" : "bg-surface-4"
+      }`}
+    >
+      <span
+        className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${
+          value ? "translate-x-4" : "translate-x-0"
+        }`}
+      />
+    </button>
+  );
+}
+
+function Toggle({ label, description, value, onChange }) {
+  return (
+    <div className="flex items-center justify-between py-2.5">
+      <div className="min-w-0 flex-1 pr-4">
+        <p className="text-sm text-gray-200 font-medium">{label}</p>
+        {description && <p className="text-xs text-gray-500 mt-0.5">{description}</p>}
+      </div>
+      <div className="flex items-center gap-2 flex-shrink-0">
+        <span className={`text-xs font-medium transition-colors ${value ? "text-brand-glow" : "text-gray-600"}`}>
+          {value ? "On" : "Off"}
+        </span>
+        <PillToggle value={value} onChange={onChange} />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Profile Tab
+// ─────────────────────────────────────────────────────────────────────────────
+function ProfileTab({ user, refreshUser }) {
+  const [form,         setForm]         = useState({ displayName: user?.displayName || "", bio: user?.bio || "" });
+  const [saving,       setSaving]       = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
+  const [exporting,    setExporting]    = useState(false);
+  const [avatarPreview,setAvatarPreview]= useState(user?.avatarUrl || user?.avatar || null);
+  const fileInputRef = useRef(null);
+
+  // BUG FIX: compress image client-side then upload as base64 avatarUrl
+  const handleAvatarChange = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please select an image file."); return; }
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const img = new Image();
+      img.onload = async () => {
+        // Compress to 200×200 circle-safe square
+        const SIZE = 200;
+        const canvas = document.createElement("canvas");
+        canvas.width  = SIZE;
+        canvas.height = SIZE;
+        const ctx = canvas.getContext("2d");
+
+        // Centre-crop
+        const srcSize = Math.min(img.width, img.height);
+        const sx = (img.width  - srcSize) / 2;
+        const sy = (img.height - srcSize) / 2;
+        ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, SIZE, SIZE);
+
+        const base64 = canvas.toDataURL("image/jpeg", 0.88);
+        setAvatarPreview(base64);
+
+        setAvatarSaving(true);
+        try {
+          await api.put("/api/users/me", { avatarUrl: base64 });
+          await refreshUser();
+          toast.success("Profile photo updated!");
+        } catch (err) {
+          toast.error(err.response?.data?.message || "Failed to upload photo.");
+        } finally {
+          setAvatarSaving(false);
+        }
+      };
+      img.src = ev.target.result;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/api/users/me", form);
+      await refreshUser();
+      toast.success("Profile updated.");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get("/api/users/me/export", { responseType: "blob" });
+      const blob = new Blob([response.data], { type: "application/json" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const disposition = response.headers["content-disposition"] || "";
+      const filenameMatch = disposition.match(/filename=([^;]+)/i);
+      const filename = filenameMatch?.[1]?.replace(/"/g, "") || `vaultfs-export-${Date.now()}.json`;
+
+      link.href = url;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(url);
+      toast.success("Export downloaded.");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to export your data.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Section title="Profile" description="Your public display information.">
+        {/* BUG FIX: circular avatar with upload click + spinner overlay */}
+        <div className="flex items-center gap-4 mb-2">
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="w-16 h-16 rounded-full overflow-hidden border-2 border-surface-4 hover:border-brand/50 transition-colors focus:outline-none focus:ring-2 focus:ring-brand/40 group"
+              title="Click to change photo"
+            >
+              {avatarPreview ? (
+                <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full bg-brand/15 flex items-center justify-center">
+                  <span className="text-2xl font-bold text-brand-glow">
+                    {(user?.displayName || user?.username)?.[0]?.toUpperCase()}
+                  </span>
+                </div>
+              )}
+              {/* Hover overlay */}
+              <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                {avatarSaving
+                  ? <Loader2 size={16} className="text-white animate-spin" />
+                  : <span className="text-white text-[10px] font-semibold">Change</span>
+                }
+              </div>
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={handleAvatarChange}
+            />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-white">{user?.username}</p>
+            <p className="text-xs text-gray-500">{user?.email}</p>
+            <p className="text-xs text-gray-500 mt-0.5">Click photo to change</p>
+            <p className="text-xs text-gray-600 mt-0.5 flex items-center gap-1">
+              {user?.emailVerified
+                ? <><CheckCircle2 size={10} className="text-emerald-400" /> Email verified</>
+                : <><AlertTriangle size={10} className="text-accent-amber" /> Email not verified</>
+              }
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Display Name</label>
+            <input className="input" value={form.displayName} onChange={(e) => setForm((p) => ({ ...p, displayName: e.target.value }))} />
+          </div>
+        </div>
+
+        <button onClick={save} disabled={saving} className="btn-primary px-5 py-2">
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+          Save Profile
+        </button>
+      </Section>
+
+      {/* Export / GDPR */}
+      <Section title="Data & Privacy" description="Export or delete your account data.">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-gray-200">Export your data</p>
+              <p className="text-xs text-gray-500">Download all your files and account info as a ZIP archive.</p>
+            </div>
+            <button
+              onClick={exportData}
+              className="btn-ghost text-sm px-4 py-2 flex items-center gap-2"
+              disabled={exporting}
+            >
+              <Download size={13} /> {exporting ? "Exporting..." : "Export"}
+            </button>
+          </div>
+
+          <div className="border-t border-surface-3 pt-3 flex items-center justify-between">
+            <div>
+              <p className="text-sm text-accent-red">Delete Account</p>
+              <p className="text-xs text-gray-600">Permanently deletes your account and all files. Cannot be undone.</p>
+            </div>
+            <button
+              onClick={() => {
+                if (confirm("Are you absolutely sure? This cannot be undone.")) {
+                  api.delete("/api/users/me").then(() => { localStorage.clear(); window.location.href = "/login"; });
+                }
+              }}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs bg-red-900/15 border border-red-900/25 text-accent-red hover:bg-red-900/30 transition-all"
+            >
+              <Trash2 size={12} /> Delete
+            </button>
+          </div>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Security Tab
+// ─────────────────────────────────────────────────────────────────────────────
+function SecurityTab({ user }) {
+  const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
+  const [showPw, setShowPw] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const changePassword = async () => {
+    if (!pwForm.currentPassword || !pwForm.newPassword) return toast.error("All fields required.");
+    if (pwForm.newPassword.length < 8) return toast.error("New password must be at least 8 characters.");
+    if (pwForm.newPassword !== pwForm.confirm) return toast.error("Passwords don't match.");
+
+    setSaving(true);
+    try {
+      await api.put("/api/auth/change-password", {
+        currentPassword: pwForm.currentPassword,
+        newPassword:     pwForm.newPassword,
+      });
+      toast.success("Password changed.");
+      setPwForm({ currentPassword: "", newPassword: "", confirm: "" });
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to change password.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Section title="Change Password" description="Use a strong, unique password.">
+        <div className="space-y-3">
+          {["currentPassword", "newPassword", "confirm"].map((field) => (
+            <div key={field}>
+              <label className="block text-xs text-gray-400 mb-1.5">
+                {field === "currentPassword" ? "Current Password" : field === "newPassword" ? "New Password" : "Confirm New Password"}
+              </label>
+              <div className="relative">
+                <input
+                  type={showPw ? "text" : "password"}
+                  className="input pr-9"
+                  value={pwForm[field]}
+                  onChange={(e) => setPwForm((p) => ({ ...p, [field]: e.target.value }))}
+                />
+                {field === "confirm" && (
+                  <button type="button" onClick={() => setShowPw(!showPw)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+                    {showPw ? <EyeOff size={13} /> : <Eye size={13} />}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+          <button onClick={changePassword} disabled={saving} className="btn-primary px-5 py-2">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Key size={14} />} Change Password
+          </button>
+        </div>
+      </Section>
+
+      {/* 2FA status display */}
+      <Section title="Two-Factor Authentication" description="Add an extra layer of security.">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className={`w-10 h-10 rounded-xl border flex items-center justify-center ${user?.twoFactorEnabled ? "bg-emerald-900/15 border-emerald-900/30" : "bg-surface-3 border-surface-4"}`}>
+              <Smartphone size={16} className={user?.twoFactorEnabled ? "text-emerald-400" : "text-gray-500"} />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-200">Authenticator App</p>
+              <p className="text-xs text-gray-500">{user?.twoFactorEnabled ? "Enabled — 2FA is protecting your account" : "Not enabled"}</p>
+            </div>
+          </div>
+          <span className={`badge text-xs ${user?.twoFactorEnabled ? "bg-emerald-900/20 text-emerald-400 border-emerald-900/30" : "bg-surface-3 text-gray-500 border-surface-4"}`}>
+            {user?.twoFactorEnabled ? "Active" : "Disabled"}
+          </span>
+        </div>
+        <p className="text-xs text-gray-600">
+          To manage 2FA, use the authenticator section in your account settings or during login.
+        </p>
+      </Section>
+
+      {/* Active sessions placeholder */}
+      <Section title="Sessions" description="You are logged in on this device.">
+        <div className="flex items-center gap-3 p-3 bg-surface-2 rounded-lg border border-brand/20">
+          <div className="w-8 h-8 rounded-lg bg-brand/15 border border-brand/25 flex items-center justify-center">
+            <Shield size={14} className="text-brand-glow" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm text-gray-200 font-medium">Current Session</p>
+            <p className="text-xs text-gray-500">This browser · {new Date().toLocaleDateString()}</p>
+          </div>
+          <button
+            onClick={() => { localStorage.removeItem("token"); window.location.href = "/login"; }}
+            className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-accent-red transition-colors"
+          >
+            <LogOut size={12} /> Sign out
+          </button>
+        </div>
+      </Section>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Notifications Tab
+// ─────────────────────────────────────────────────────────────────────────────
+function NotificationsTab({ user, refreshUser }) {
+  const [prefs,  setPrefs]  = useState({
+    emailOnDownload:       user?.notificationPrefs?.emailOnDownload       ?? false,
+    emailOnShare:          user?.notificationPrefs?.emailOnShare          ?? true,
+    emailOnFileRequest:    user?.notificationPrefs?.emailOnFileRequest    ?? true,
+    emailOnLogin:          user?.notificationPrefs?.emailOnLogin          ?? false,
+    emailWeeklySummary:    user?.notificationPrefs?.emailWeeklySummary    ?? false,
+    inAppActivity:         user?.notificationPrefs?.inAppActivity         ?? true,
+    inAppAnnouncements:    user?.notificationPrefs?.inAppAnnouncements    ?? true,
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setPrefs((p) => ({ ...p, [k]: v }));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.put("/api/users/me/notification-prefs", prefs);
+      await refreshUser();
+      toast.success("Notification preferences saved.");
+    } catch { toast.error("Failed to save preferences."); }
+    finally { setSaving(false); }
+  };
+
+  const EMAIL_PREFS = [
+    { key: "emailOnDownload",    label: "File downloaded",      desc: "Email when someone downloads your shared file" },
+    { key: "emailOnShare",       label: "File shared",          desc: "Confirmation when you create a share link"     },
+    { key: "emailOnFileRequest", label: "File request submission", desc: "Email when someone submits files to your request" },
+    { key: "emailOnLogin",       label: "New login detected",   desc: "Email when your account is accessed from a new device" },
+    { key: "emailWeeklySummary", label: "Weekly activity summary", desc: "A weekly digest of your vault activity" },
+  ];
+
+  const INAPP_PREFS = [
+    { key: "inAppActivity",      label: "Live activity feed",   desc: "Real-time updates in the sidebar activity feed" },
+    { key: "inAppAnnouncements", label: "System announcements", desc: "Admin broadcast messages shown in the app"     },
+  ];
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <Section title="Email Notifications" description="Control when VaultFS sends you emails.">
+        <div className="divide-y divide-surface-3">
+          {EMAIL_PREFS.map(({ key, label, desc }) => (
+            <Toggle key={key} label={label} description={desc} value={prefs[key]} onChange={(v) => set(key, v)} />
+          ))}
+        </div>
+      </Section>
+
+      <Section title="In-App Notifications" description="Control real-time in-app notifications.">
+        <div className="divide-y divide-surface-3">
+          {INAPP_PREFS.map(({ key, label, desc }) => (
+            <Toggle key={key} label={label} description={desc} value={prefs[key]} onChange={(v) => set(key, v)} />
+          ))}
+        </div>
+      </Section>
+
+      <button onClick={save} disabled={saving} className="btn-primary px-5 py-2.5">
+        {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+        Save Preferences
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  Main SettingsPage
+// ─────────────────────────────────────────────────────────────────────────────
+const TABS = [
+  { id: "profile",       label: "Profile",       icon: User      },
+  { id: "security",      label: "Security",      icon: Lock      },
+  { id: "notifications", label: "Notifications", icon: Bell      },
+  { id: "webhooks",      label: "Webhooks",      icon: Webhook   },
+];
+
+export default function SettingsPage() {
+  const { user, refreshUser } = useAuth();
+  const [activeTab, setTab]   = useState("profile");
+
+  return (
+    <div className="p-6 max-w-4xl mx-auto space-y-5">
+      {/* Email verification banner */}
+      <EmailVerificationBanner />
+
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-brand/15 border border-brand/25 flex items-center justify-center">
+          <Settings size={16} className="text-brand-glow" />
+        </div>
+        <div>
+          <h1 className="font-display font-bold text-xl text-white">Settings</h1>
+          <p className="text-xs text-gray-500">Manage your account, security, and integrations</p>
+        </div>
+      </div>
+
+      <div className="flex gap-6">
+        {/* Sidebar tabs */}
+        <nav className="w-44 flex-shrink-0 space-y-0.5">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+                activeTab === id
+                  ? "bg-brand/10 text-brand-glow border border-brand/20"
+                  : "text-gray-400 hover:text-white hover:bg-surface-3"
+              }`}
+            >
+              <Icon size={14} className={activeTab === id ? "text-brand-glow" : "text-gray-500"} />
+              {label}
+            </button>
+          ))}
+        </nav>
+
+        {/* Tab content */}
+        <div className="flex-1 min-w-0 animate-fade-up">
+          {activeTab === "profile"       && <ProfileTab       user={user} refreshUser={refreshUser} />}
+          {activeTab === "security"      && <SecurityTab      user={user} />}
+          {activeTab === "notifications" && <NotificationsTab user={user} refreshUser={refreshUser} />}
+          {activeTab === "webhooks"      && <WebhooksTab />}
+        </div>
+      </div>
+    </div>
+  );
+}

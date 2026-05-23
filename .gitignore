@@ -1,0 +1,123 @@
+# =========================
+# Node Modules
+# =========================
+node_modules/
+**/node_modules/
+
+# =========================
+# Environment Variables
+# =========================
+.env
+.env.*
+!.env.example
+
+# =========================
+# Logs
+# =========================
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# =========================
+# Runtime Data
+# =========================
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# =========================
+# Uploads / User Files
+# =========================
+uploads/
+public/uploads/
+storage/
+
+# =========================
+# Temporary Files
+# =========================
+tmp/
+temp/
+.cache/
+*.tmp
+
+# =========================
+# OS Files
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# =========================
+# IDE / Editor
+# =========================
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# =========================
+# Build / Distribution
+# =========================
+dist/
+build/
+coverage/
+
+# =========================
+# Package Lock Files (optional)
+# Uncomment if needed
+# =========================
+# package-lock.json
+# yarn.lock
+# pnpm-lock.yaml
+
+# =========================
+# Database Files
+# =========================
+*.sqlite
+*.sqlite3
+*.db
+
+# =========================
+# Archives
+# =========================
+*.zip
+*.tar
+*.gz
+*.rar
+
+# =========================
+# Media Files (optional)
+# Uncomment if you don't want uploads tracked
+# =========================
+# *.mp4
+# *.pdf
+# *.jpg
+# *.jpeg
+# *.png
+
+# =========================
+# Sensitive Config Files
+# =========================
+config/secrets.js
+config/private.key
+config/*.pem
+
+# =========================
+# Test Coverage
+# =========================
+.nyc_output/
+coverage/
+
+# =========================
+# Misc
+# =========================
+*.bak
+*.old
+*.orig

@@ -1,0 +1,22 @@
+{
+  "name": "vaultfs",
+  "version": "3.1.0",
+  "description": "VaultFS — Full-featured file management system",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install",
+    "build": "cd client && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "fs-extra": "^11.3.4",
+    "mongodb": "^7.2.0",
+    "mongoose": "^9.5.0"
+  }
+}
