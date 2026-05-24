@@ -1,7 +1,9 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider }         from "./context/ThemeContext";
 import { BrandingProvider }      from "./components/BrandingProvider";
+import AppToaster                from "./components/AppToaster";
 import LoginPage          from "./pages/LoginPage";
 import AdminLoginPage     from "./pages/AdminLoginPage";
 import RegisterPage       from "./pages/RegisterPage";
@@ -115,10 +117,13 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <BrandingProvider>
-      <AuthProvider>
-        <AppRoutes />
-      </AuthProvider>
-    </BrandingProvider>
+    <ThemeProvider>
+      <BrandingProvider>
+        <AuthProvider>
+          <AppRoutes />
+          <AppToaster />
+        </AuthProvider>
+      </BrandingProvider>
+    </ThemeProvider>
   );
 }

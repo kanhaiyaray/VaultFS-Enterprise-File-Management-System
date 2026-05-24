@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Settings, User, Lock, Bell, Webhook, Shield,
+  Settings, User, Lock, Bell, Webhook, Shield, Monitor, Sun, Moon,
   Loader2, CheckCircle2, Eye, EyeOff, Save, Trash2,
   Mail, Download, Key, Smartphone, LogOut, AlertTriangle,
 } from "lucide-react";
 import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
+import { useTheme } from "../context/ThemeContext";
 import toast from "react-hot-toast";
 import EmailVerificationBanner from "../components/EmailVerificationBanner";
 import WebhooksTab              from "../components/WebhooksTab";
@@ -419,12 +420,75 @@ function NotificationsTab({ user, refreshUser }) {
   );
 }
 
+function AppearanceTab() {
+  const { theme, setTheme, resolvedTheme } = useTheme();
+
+  const options = [
+    {
+      id: "system",
+      label: "System",
+      description: `Match your device automatically. Currently ${resolvedTheme}.`,
+      icon: Monitor,
+    },
+    {
+      id: "light",
+      label: "Light",
+      description: "Use the brighter interface everywhere.",
+      icon: Sun,
+    },
+    {
+      id: "dark",
+      label: "Dark",
+      description: "Keep the darker look across the app.",
+      icon: Moon,
+    },
+  ];
+
+  return (
+    <div className="space-y-4 max-w-2xl">
+      <Section title="Appearance" description="Choose how VaultFS should handle light and dark mode.">
+        <div className="grid gap-3 sm:grid-cols-3">
+          {options.map(({ id, label, description, icon: Icon }) => {
+            const selected = theme === id;
+
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setTheme(id)}
+                aria-pressed={selected}
+                className={`text-left rounded-xl border p-4 transition-all ${
+                  selected
+                    ? "border-brand/30 bg-brand/10 shadow-glow-sm"
+                    : "border-surface-4 bg-surface-2 hover:border-brand/30 hover:bg-surface-1"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center ${
+                    selected ? "border-brand/25 bg-brand/15" : "border-surface-4 bg-surface-3"
+                  }`}>
+                    <Icon size={17} className={selected ? "text-brand-glow" : "text-gray-500"} />
+                  </div>
+                  {selected && <span className="badge bg-brand/15 border border-brand/25 text-brand-glow">Active</span>}
+                </div>
+                <p className="mt-4 text-sm font-semibold text-white">{label}</p>
+                <p className="mt-1 text-xs text-gray-500 leading-5">{description}</p>
+              </button>
+            );
+          })}
+        </div>
+      </Section>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 //  Main SettingsPage
 // ─────────────────────────────────────────────────────────────────────────────
 const TABS = [
   { id: "profile",       label: "Profile",       icon: User      },
   { id: "security",      label: "Security",      icon: Lock      },
+  { id: "appearance",    label: "Appearance",    icon: Monitor   },
   { id: "notifications", label: "Notifications", icon: Bell      },
   { id: "webhooks",      label: "Webhooks",      icon: Webhook   },
 ];
@@ -472,6 +536,7 @@ export default function SettingsPage() {
         <div className="flex-1 min-w-0 animate-fade-up">
           {activeTab === "profile"       && <ProfileTab       user={user} refreshUser={refreshUser} />}
           {activeTab === "security"      && <SecurityTab      user={user} />}
+          {activeTab === "appearance"    && <AppearanceTab />}
           {activeTab === "notifications" && <NotificationsTab user={user} refreshUser={refreshUser} />}
           {activeTab === "webhooks"      && <WebhooksTab />}
         </div>

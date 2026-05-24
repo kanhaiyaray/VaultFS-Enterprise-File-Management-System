@@ -1,4 +1,6 @@
 /** @type {import('tailwindcss').Config} */
+const withOpacity = (variable) => `rgb(var(${variable}) / <alpha-value>)`;
+
 export default {
   content: ["./index.html", "./src/**/*.{js,jsx,ts,tsx}"],
   theme: {
@@ -10,22 +12,35 @@ export default {
       },
       colors: {
         brand: {
-          DEFAULT: "#6366f1",
-          glow: "#818cf8",
+          DEFAULT: withOpacity("--brand"),
+          glow: withOpacity("--brand-glow"),
         },
         surface: {
-          0: "#09090b",
-          1: "#111113",
-          2: "#18181b",
-          3: "#27272a",
-          4: "#3f3f46",
-          5: "#52525b",
+          0: withOpacity("--surface-0"),
+          1: withOpacity("--surface-1"),
+          2: withOpacity("--surface-2"),
+          3: withOpacity("--surface-3"),
+          4: withOpacity("--surface-4"),
+          5: withOpacity("--surface-5"),
         },
         accent: {
-          red: "#f87171",
-          green: "#4ade80",
-          amber: "#fbbf24",
-          blue: "#60a5fa",
+          red: withOpacity("--accent-red"),
+          green: withOpacity("--accent-green"),
+          amber: withOpacity("--accent-amber"),
+          blue: withOpacity("--accent-blue"),
+        },
+        gray: {
+          200: withOpacity("--gray-200"),
+          300: withOpacity("--gray-300"),
+          400: withOpacity("--gray-400"),
+          500: withOpacity("--gray-500"),
+          600: withOpacity("--gray-600"),
+          700: withOpacity("--gray-700"),
+        },
+        zinc: {
+          100: withOpacity("--zinc-100"),
+          400: withOpacity("--zinc-400"),
+          600: withOpacity("--zinc-600"),
         },
       },
       boxShadow: {
