@@ -18,6 +18,8 @@ const shortcuts = [
       { key: "Esc",   desc: "Close modals / sidebar"             },
       { key: "?",     desc: "Show keyboard shortcuts"             },
       { key: "Del",   desc: "Delete selected files (select mode)" },
+      { key: "Ctrl+Z", desc: "Undo last file action"              },
+      { key: "Ctrl+Y", desc: "Redo last undone action"            },
     ],
   },
   {
@@ -26,6 +28,8 @@ const shortcuts = [
       { key: "Ctrl+A", desc: "Select all files"      },
       { key: "Ctrl+D", desc: "Deselect all files"    },
       { key: "Space",  desc: "Preview selected file" },
+      { key: "F",      desc: "Focus quick search"    },
+      { key: "G / L",  desc: "Switch grid or list"   },
     ],
   },
 ];

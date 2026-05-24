@@ -1,14 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, Upload, Shield, LogOut, Menu, X, HardDrive, Zap,
   ChevronRight, BarChart3, Globe, Users, Settings, Activity, Star,
-  Search, Keyboard, Link2, Trash2, Webhook,
+  Keyboard, Link2, Trash2,
 } from "lucide-react";
 import { useAuth }          from "../context/AuthContext";
 import { useSocket }        from "../hooks/useSocket";
 import { formatBytes }      from "../utils/helpers";
 import { useBranding }      from "../components/BrandingProvider";
+import { useActionHistory } from "../context/ActionHistoryContext";
 import AnnouncementBanner   from "../components/AnnouncementBanner";
 import KeyboardShortcuts    from "./KeyboardShortcuts";
 import toast from "react-hot-toast";
@@ -37,6 +38,7 @@ const ACTIVITY_ICONS = {
 export default function Layout({ children }) {
   const { user, logout }  = useAuth();
   const { branding }      = useBranding();
+  const { undo, redo, canUndo, canRedo } = useActionHistory();
   const navigate          = useNavigate();
   const { on, off }       = useSocket();
 
@@ -63,6 +65,16 @@ export default function Layout({ children }) {
   useEffect(() => {
     const handler = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        undo();
+        return;
+      }
+      if (((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "z")) {
+        e.preventDefault();
+        redo();
+        return;
+      }
       if (e.key === "?" && e.shiftKey) { setShowShortcuts(true);  return; }
       if (e.key === "Escape")          { setShowShortcuts(false); setSidebarOpen(false); return; }
       if (e.key === "u" || e.key === "U") { navigate("/upload");    return; }
@@ -73,7 +85,7 @@ export default function Layout({ children }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [navigate]);
+  }, [navigate, redo, undo]);
 
   const handleLogout   = () => { logout(); navigate("/login"); };
   const storagePercent = parseFloat(user?.storagePercent || 0);
@@ -249,6 +261,23 @@ export default function Layout({ children }) {
             <Keyboard size={12} />
             <span>Keyboard shortcuts</span>
             <kbd className="ml-auto bg-surface-3 border border-surface-4 px-1.5 py-0.5 rounded text-[10px]">?</kbd>
+          </button>
+        </div>
+
+        <div className="px-4 pb-2 grid grid-cols-2 gap-2">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className="btn-ghost text-xs px-3 py-2 justify-center disabled:opacity-40"
+          >
+            Undo
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            className="btn-ghost text-xs px-3 py-2 justify-center disabled:opacity-40"
+          >
+            Redo
           </button>
         </div>
 

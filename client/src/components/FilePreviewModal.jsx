@@ -1,51 +1,64 @@
-import { useState, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  X, Download, Star, StarOff, Share2, Trash2, Edit3, Check,
-  ChevronLeft, ChevronRight, ExternalLink, History, Activity,
-  Tag, Info, Eye, Lock, Loader2, Copy, ZoomIn, ZoomOut,
-  RotateCw, Volume2, Maximize2,
+  Activity,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Edit3,
+  Eye,
+  History,
+  Info,
+  Loader2,
+  Palette,
+  Share2,
+  Star,
+  Trash2,
+  Volume2,
+  X,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
+  BookOpen,
 } from "lucide-react";
-import api from "../utils/api";
-import { formatBytes, formatDate, getFileIcon } from "../utils/helpers";
 import toast from "react-hot-toast";
-import { useAuth } from "../context/AuthContext";
-
-// ── Lazy-load all the new tab components ─────────────────────────────────────
-import FileVersionHistory        from "./FileVersionHistory";
-import FileActivityLog           from "./FileActivityLog";
-import AdvancedShareModal        from "./AdvancedShareModal";
-import { LabelPicker, LabelDot } from "./FileLabels";
+import api from "../utils/api";
+import { useActionHistory } from "../context/ActionHistoryContext";
+import { formatBytes, formatDate, getFileIcon } from "../utils/helpers";
+import FileVersionHistory from "./FileVersionHistory";
+import FileActivityLog from "./FileActivityLog";
+import AdvancedShareModal from "./AdvancedShareModal";
+import { LabelDot, LabelPicker } from "./FileLabels";
 import OfficePreview, { MIME_TYPES as OFFICE_MIMES } from "./OfficePreview";
-import CodeAndMarkdownPreview, { detectLanguage } from "./CodeAndMarkdownPreview";
+import CodeAndMarkdownPreview from "./CodeAndMarkdownPreview";
+import EbookPreview from "./EbookPreview";
 
-// ── Text-previewable extensions ───────────────────────────────────────────────
 const TEXT_EXTS = new Set([
-  "txt","md","mdx","js","jsx","ts","tsx","py","rb","go","rs","java","kt",
-  "php","cs","cpp","c","h","sh","bash","sql","html","xml","css","scss",
-  "json","yaml","yml","toml","env","dockerfile","graphql","tf","lua",
-  "swift","dart","log","csv",
+  "txt", "md", "mdx", "js", "jsx", "ts", "tsx", "py", "rb", "go", "rs", "java", "kt",
+  "php", "cs", "cpp", "c", "h", "sh", "bash", "sql", "html", "xml", "css", "scss",
+  "json", "yaml", "yml", "toml", "env", "dockerfile", "graphql", "tf", "lua",
+  "swift", "dart", "log", "csv",
 ]);
 
+const FILE_COLORS = ["#ef4444", "#f97316", "#f59e0b", "#22c55e", "#14b8a6", "#3b82f6", "#8b5cf6", "#ec4899", "#6b7280"];
+
 function isTextFile(file) {
-  if (!file) return false;
-  const ext = file.originalName?.split(".").pop()?.toLowerCase();
-  return TEXT_EXTS.has(ext) || file.mimetype?.startsWith("text/");
+  const ext = file?.originalName?.split(".").pop()?.toLowerCase();
+  return TEXT_EXTS.has(ext) || file?.mimetype?.startsWith("text/");
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Preview renderers
-// ─────────────────────────────────────────────────────────────────────────────
+function isEpubFile(file) {
+  const ext = file?.originalName?.split(".").pop()?.toLowerCase();
+  return ext === "epub" || file?.mimetype === "application/epub+zip";
+}
 
 function ImageViewer({ src, alt }) {
-  const [scale, setScale]   = useState(1);
+  const [scale, setScale] = useState(1);
   const [rotate, setRotate] = useState(0);
-  const zoom  = (d) => setScale((s) => Math.max(0.25, Math.min(4, s + d)));
-  const reset = () => { setScale(1); setRotate(0); };
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="overflow-hidden rounded-xl border border-surface-4 bg-surface-0 relative w-full flex items-center justify-center"
-           style={{ minHeight: 240, maxHeight: 520 }}>
+      <div className="overflow-hidden rounded-xl border border-surface-4 bg-surface-0 relative w-full flex items-center justify-center" style={{ minHeight: 240, maxHeight: 520 }}>
         <img
           src={src}
           alt={alt}
@@ -54,24 +67,21 @@ function ImageViewer({ src, alt }) {
           draggable={false}
         />
       </div>
-      {/* Image toolbar */}
       <div className="flex items-center gap-1 bg-surface-2 border border-surface-4 rounded-lg px-2 py-1.5">
-        <button onClick={() => zoom(-0.25)} className="p-1 text-gray-500 hover:text-white transition-colors" title="Zoom out"><ZoomOut size={13} /></button>
-        <button onClick={reset} className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors">{Math.round(scale * 100)}%</button>
-        <button onClick={() => zoom(0.25)} className="p-1 text-gray-500 hover:text-white transition-colors" title="Zoom in"><ZoomIn size={13} /></button>
+        <button onClick={() => setScale((value) => Math.max(0.25, value - 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
+          <ZoomOut size={13} />
+        </button>
+        <button onClick={() => { setScale(1); setRotate(0); }} className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors">
+          {Math.round(scale * 100)}%
+        </button>
+        <button onClick={() => setScale((value) => Math.min(4, value + 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
+          <ZoomIn size={13} />
+        </button>
         <div className="w-px h-4 bg-surface-4 mx-1" />
-        <button onClick={() => setRotate((r) => r + 90)} className="p-1 text-gray-500 hover:text-white transition-colors" title="Rotate"><RotateCw size={13} /></button>
+        <button onClick={() => setRotate((value) => value + 90)} className="p-1 text-gray-500 hover:text-white transition-colors">
+          <RotateCw size={13} />
+        </button>
       </div>
-    </div>
-  );
-}
-
-function VideoPlayer({ src, file }) {
-  return (
-    <div className="rounded-xl overflow-hidden border border-surface-4 bg-black">
-      <video controls className="w-full max-h-[480px]" src={src} preload="metadata">
-        Your browser doesn't support video playback.
-      </video>
     </div>
   );
 }
@@ -94,45 +104,69 @@ function AudioPlayer({ src, file }) {
 
 function PdfViewer({ src }) {
   return (
-    <div className="rounded-xl overflow-hidden border border-surface-4" style={{ height: 560 }}>
+    <div className="rounded-xl overflow-hidden border border-surface-4 bg-white" style={{ height: 560 }}>
       <iframe src={`${src}#view=FitH&toolbar=1`} className="w-full h-full" title="PDF Viewer" />
     </div>
   );
 }
 
+function BrowserFallbackViewer({ src, file }) {
+  return (
+    <div className="space-y-3">
+      <div className="rounded-xl overflow-hidden border border-surface-4 bg-surface-0" style={{ height: 560 }}>
+        <iframe src={src} className="w-full h-full" title={file.originalName} />
+      </div>
+      <p className="text-xs text-gray-600">
+        VaultFS is using the browser&apos;s built-in viewer for this file type.
+      </p>
+    </div>
+  );
+}
+
 function TextFetcher({ file, downloadUrl }) {
-  const [content, setContent] = useState(null);
+  const [content, setContent] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!downloadUrl) return;
+    let mounted = true;
+
     fetch(downloadUrl)
-      .then((r) => r.text())
-      .then(setContent)
-      .catch(() => setContent("// Failed to load file content."))
-      .finally(() => setLoading(false));
+      .then((response) => response.text())
+      .then((value) => { if (mounted) setContent(value); })
+      .catch(() => { if (mounted) setContent("// Failed to load file content."); })
+      .finally(() => { if (mounted) setLoading(false); });
+
+    return () => { mounted = false; };
   }, [downloadUrl]);
 
-  if (loading) return <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-brand-glow" /></div>;
+  if (loading) {
+    return <div className="flex justify-center py-10"><Loader2 size={20} className="animate-spin text-brand-glow" /></div>;
+  }
+
   return <CodeAndMarkdownPreview file={file} content={content} downloadUrl={downloadUrl} />;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Rename inline
-// ─────────────────────────────────────────────────────────────────────────────
 function InlineRename({ file, onDone }) {
   const [name, setName] = useState(file.originalName);
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    if (!name.trim() || name === file.originalName) return onDone();
+    if (!name.trim() || name === file.originalName) {
+      onDone();
+      return;
+    }
+
     setSaving(true);
     try {
       await api.put(`/api/files/${file._id}`, { originalName: name.trim() });
       toast.success("Renamed.");
       onDone(name.trim());
-    } catch { toast.error("Rename failed."); }
-    finally { setSaving(false); }
+    } catch {
+      toast.error("Rename failed.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -141,131 +175,278 @@ function InlineRename({ file, onDone }) {
         autoFocus
         className="input text-sm flex-1"
         value={name}
-        onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") save(); if (e.key === "Escape") onDone(); }}
+        onChange={(event) => setName(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") save();
+          if (event.key === "Escape") onDone();
+        }}
       />
       <button onClick={save} disabled={saving} className="btn-primary px-3 py-1.5 text-xs flex-shrink-0">
         {saving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
       </button>
-      <button onClick={onDone} className="btn-ghost px-2 py-1.5 flex-shrink-0"><X size={12} /></button>
+      <button onClick={() => onDone()} className="btn-ghost px-2 py-1.5 flex-shrink-0">
+        <X size={12} />
+      </button>
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Info Tab
-// ─────────────────────────────────────────────────────────────────────────────
-function InfoTab({ file }) {
+function InfoTab({ file, organizerMeta }) {
   const rows = [
     { label: "Original Name", value: file.originalName },
-    { label: "Size",          value: formatBytes(file.size) },
-    { label: "Type",          value: file.mimetype },
-    { label: "Uploaded",      value: formatDate(file.createdAt) },
-    { label: "Modified",      value: formatDate(file.updatedAt) },
-    file.hash && { label: "SHA-256",  value: <span className="font-mono text-[10px] break-all">{file.hash}</span> },
+    { label: "Size", value: formatBytes(file.size) },
+    { label: "Type", value: file.mimetype },
+    { label: "Uploaded", value: formatDate(file.createdAt) },
+    { label: "Modified", value: formatDate(file.updatedAt) },
     file.description && { label: "Description", value: file.description },
-    file.tags?.length  && { label: "Tags",        value: file.tags.map((t) => `#${t}`).join("  ") },
-    file.metadata?.width && { label: "Dimensions", value: `${file.metadata.width} × ${file.metadata.height}px` },
-    file.metadata?.compressed && { label: "Compressed", value: `${formatBytes(file.metadata.originalSize)} → ${formatBytes(file.size)}` },
+    file.tags?.length && { label: "Tags", value: file.tags.map((tag) => `#${tag}`).join("  ") },
+    organizerMeta?.aliases?.length && { label: "Aliases", value: organizerMeta.aliases.map((alias) => `@${alias}`).join("  ") },
+    organizerMeta?.relationships?.length && { label: "Relationships", value: `${organizerMeta.relationships.length} linked file(s)` },
   ].filter(Boolean);
 
   return (
     <div className="space-y-1">
-      {rows.map((r) => (
-        <div key={r.label} className="flex items-start gap-3 py-2 border-b border-surface-3 last:border-0">
-          <span className="text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">{r.label}</span>
-          <span className="text-xs text-gray-300 flex-1 break-all">{r.value}</span>
+      {rows.map((row) => (
+        <div key={row.label} className="flex items-start gap-3 py-2 border-b border-surface-3 last:border-0">
+          <span className="text-xs text-gray-500 w-28 flex-shrink-0 pt-0.5">{row.label}</span>
+          <span className="text-xs text-gray-300 flex-1 break-all">{row.value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-//  Main FilePreviewModal
-// ─────────────────────────────────────────────────────────────────────────────
+function OrganizerTab({ file, files, organizerMeta, onOrganizerUpdate, onRefresh }) {
+  const { pushAction } = useActionHistory();
+  const [description, setDescription] = useState(file.description || "");
+  const [aliasInput, setAliasInput] = useState("");
+
+  useEffect(() => {
+    setDescription(file.description || "");
+  }, [file.description]);
+
+  const relationships = organizerMeta?.relationships || [];
+  const aliases = organizerMeta?.aliases || [];
+  const relatedIds = new Set(relationships.map((item) => item.id));
+
+  const saveDescription = async () => {
+    try {
+      const previous = file.description || "";
+      await api.put(`/api/files/${file._id}`, { description });
+      pushAction({
+        undoLabel: "Description restored.",
+        redoLabel: "Description changed again.",
+        undo: async () => { await api.put(`/api/files/${file._id}`, { description: previous }); onRefresh?.(); },
+        redo: async () => { await api.put(`/api/files/${file._id}`, { description }); onRefresh?.(); },
+      });
+      toast.success("Description updated.");
+      onRefresh?.();
+    } catch {
+      toast.error("Failed to save description.");
+    }
+  };
+
+  const setColor = (color) => {
+    const previous = organizerMeta?.color || "";
+    onOrganizerUpdate?.({ color });
+    pushAction({
+      undoLabel: "Color restored.",
+      redoLabel: "Color applied again.",
+      undo: async () => onOrganizerUpdate?.({ color: previous }),
+      redo: async () => onOrganizerUpdate?.({ color }),
+    });
+  };
+
+  const addAlias = () => {
+    const alias = aliasInput.trim();
+    if (!alias) return;
+    if (aliases.includes(alias)) {
+      toast.error("Alias already exists.");
+      return;
+    }
+
+    const nextAliases = [...aliases, alias];
+    onOrganizerUpdate?.({ aliases: nextAliases });
+    setAliasInput("");
+  };
+
+  const removeAlias = (alias) => {
+    onOrganizerUpdate?.({ aliases: aliases.filter((value) => value !== alias) });
+  };
+
+  const toggleRelationship = (relatedFile) => {
+    const exists = relatedIds.has(relatedFile._id);
+    const nextRelationships = exists
+      ? relationships.filter((item) => item.id !== relatedFile._id)
+      : [...relationships, { id: relatedFile._id, name: relatedFile.originalName }];
+    onOrganizerUpdate?.({ relationships: nextRelationships });
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Color</p>
+        <div className="flex flex-wrap gap-2">
+          {FILE_COLORS.map((color) => (
+            <button
+              key={color}
+              onClick={() => setColor(color)}
+              className={`w-7 h-7 rounded-full transition-transform ${
+                organizerMeta?.color === color ? "scale-110 ring-2 ring-white/30" : "hover:scale-105"
+              }`}
+              style={{ backgroundColor: color }}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Description</p>
+          <button onClick={saveDescription} className="btn-ghost text-xs px-3 py-1.5">Save</button>
+        </div>
+        <textarea
+          value={description}
+          onChange={(event) => setDescription(event.target.value)}
+          className="input min-h-[96px] text-sm"
+          placeholder="Add a file description..."
+        />
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Aliases and Shortcuts</p>
+        <div className="flex gap-2 mb-3">
+          <input
+            value={aliasInput}
+            onChange={(event) => setAliasInput(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") addAlias(); }}
+            className="input text-sm flex-1"
+            placeholder="invoice-q2 or client-brief"
+          />
+          <button onClick={addAlias} className="btn-primary px-3 py-2">Add</button>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {aliases.length ? aliases.map((alias) => (
+            <button key={alias} onClick={() => removeAlias(alias)} className="px-2.5 py-1 rounded-lg text-xs bg-surface-3 border border-surface-4 text-brand-glow">
+              @{alias}
+            </button>
+          )) : (
+            <p className="text-xs text-gray-600">No aliases yet.</p>
+          )}
+        </div>
+      </div>
+
+      <div>
+        <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Relationships</p>
+        <div className="max-h-48 overflow-y-auto space-y-2 pr-1">
+          {files.filter((item) => item._id !== file._id).slice(0, 20).map((relatedFile) => {
+            const active = relatedIds.has(relatedFile._id);
+            return (
+              <button
+                key={relatedFile._id}
+                onClick={() => toggleRelationship(relatedFile)}
+                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl border text-left transition-colors ${
+                  active ? "bg-brand/10 border-brand/20 text-brand-glow" : "bg-surface-2 border-surface-4 text-gray-300 hover:text-white"
+                }`}
+              >
+                <span className="text-lg">{getFileIcon(relatedFile.mimetype)}</span>
+                <span className="flex-1 truncate text-sm">{relatedFile.originalName}</span>
+                {active && <Check size={13} />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 const TABS = [
-  { id: "preview",  label: "Preview",  icon: Eye      },
-  { id: "info",     label: "Info",     icon: Info     },
-  { id: "versions", label: "Versions", icon: History  },
+  { id: "preview", label: "Preview", icon: Eye },
+  { id: "info", label: "Info", icon: Info },
+  { id: "organize", label: "Organize", icon: Palette },
+  { id: "versions", label: "Versions", icon: History },
   { id: "activity", label: "Activity", icon: Activity },
 ];
 
 export default function FilePreviewModal({
   file: initialFile,
-  files = [],          // full file list for prev/next nav
+  files = [],
   onClose,
   onDelete,
   onStar,
   onRefresh,
+  organizerMeta = {},
+  onOrganizerUpdate,
   isOwner = true,
 }) {
-  const { user }            = useAuth();
-  const [file, setFile]     = useState(initialFile);
-  const [tab,  setTab]      = useState("preview");
-  const [signedUrl, setUrl] = useState(null);
-  // BUG FIX: separate blob URL so media previews include auth
-  const [blobUrl,      setBlobUrl]    = useState(null);
-  const [urlLoading,   setUrlLoading] = useState(false);
-  const [renaming,     setRenaming]   = useState(false);
-  const [showShare,    setShowShare]  = useState(false);
-  const [deleting,     setDeleting]   = useState(false);
-  const [starring,     setStarring]   = useState(false);
+  const [file, setFile] = useState(initialFile);
+  const [tab, setTab] = useState("preview");
+  const [signedUrl, setSignedUrl] = useState(null);
+  const [urlLoading, setUrlLoading] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [showShare, setShowShare] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [starring, setStarring] = useState(false);
 
-  const currentIdx = files.findIndex((f) => f._id === file._id);
-  const hasPrev    = currentIdx > 0;
-  const hasNext    = currentIdx < files.length - 1;
+  useEffect(() => {
+    setFile(initialFile);
+  }, [initialFile]);
 
-  // BUG FIX: fetch file content with JWT for media types so <img>/<video>/<iframe>
-  // don't break — plain src= attributes never send Authorization headers.
+  const currentIndex = files.findIndex((item) => item._id === file._id);
+  const hasPrev = currentIndex > 0;
+  const hasNext = currentIndex < files.length - 1;
+
   useEffect(() => {
     if (!file?._id) return;
-    setUrl(null);
-    setBlobUrl(null);
+    let mounted = true;
     setUrlLoading(true);
+    setSignedUrl(null);
 
-    const mime = file.mimetype || "";
-    const isMedia =
-      mime.startsWith("image/") ||
-      mime.startsWith("video/") ||
-      mime.startsWith("audio/") ||
-      mime === "application/pdf";
+    api.get(`/api/files/${file._id}/signed-url`)
+      .then(({ data }) => {
+        if (mounted) setSignedUrl(data.url || data.signedUrl);
+      })
+      .catch(() => {
+        if (mounted) setSignedUrl(null);
+      })
+      .finally(() => {
+        if (mounted) setUrlLoading(false);
+      });
 
-    if (isMedia) {
-      api.get(`/api/files/download/${file._id}`, { responseType: "blob" })
-        .then(({ data }) => {
-          const url = URL.createObjectURL(data);
-          setBlobUrl(url);
-          setUrl(url);
-        })
-        .catch(() => {})
-        .finally(() => setUrlLoading(false));
-    } else {
-      // text / office files fetch their own content separately
-      api.get(`/api/files/${file._id}/signed-url`)
-        .then(({ data }) => setUrl(data.url || data.signedUrl))
-        .catch(() => {})
-        .finally(() => setUrlLoading(false));
-    }
-
-    return () => {
-      // revoke blob URL to free memory when switching files
-      setBlobUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null; });
-    };
+    return () => { mounted = false; };
   }, [file?._id]);
 
-  // Keyboard nav
   useEffect(() => {
-    const handler = (e) => {
-      if (e.key === "Escape") onClose();
-      if (e.key === "ArrowLeft"  && hasPrev) setFile(files[currentIdx - 1]);
-      if (e.key === "ArrowRight" && hasNext) setFile(files[currentIdx + 1]);
+    const handler = (event) => {
+      if (event.key === "Escape") onClose();
+      if (event.key === "ArrowLeft" && hasPrev) setFile(files[currentIndex - 1]);
+      if (event.key === "ArrowRight" && hasNext) setFile(files[currentIndex + 1]);
     };
+
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onClose, hasPrev, hasNext, currentIdx, files]);
+  }, [currentIndex, files, hasNext, hasPrev, onClose]);
 
-  // ✅ FIXED: Removed confirm() dialog
+  const handleDownload = useCallback(async () => {
+    try {
+      toast.loading("Preparing download...", { id: "download-file" });
+      const response = await api.get(`/api/files/download/${file._id}`, { responseType: "blob" });
+      toast.dismiss("download-file");
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = file.originalName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      toast.dismiss("download-file");
+      toast.error("Download failed.");
+    }
+  }, [file._id, file.originalName]);
+
   const handleDelete = async () => {
     setDeleting(true);
     try {
@@ -273,63 +454,35 @@ export default function FilePreviewModal({
       toast.success("File deleted.");
       onDelete?.(file._id);
       onClose();
-    } catch { toast.error("Delete failed."); }
-    finally { setDeleting(false); }
+    } catch {
+      toast.error("Delete failed.");
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleStar = async () => {
     setStarring(true);
     try {
-      if (file.isStarred) {
-        await api.delete(`/api/files/${file._id}/star`);
-        setFile((f) => ({ ...f, isStarred: false }));
-        toast.success("Unstarred.");
-      } else {
-        await api.post(`/api/files/${file._id}/star`);
-        setFile((f) => ({ ...f, isStarred: true }));
-        toast.success("Starred!");
-      }
-      onStar?.(file._id);
-    } catch { toast.error("Failed."); }
-    finally { setStarring(false); }
-  };
-
-  // BUG FIX: Use axios (which carries the JWT) to download as blob.
-  // Plain <a href> clicks do NOT include the Authorization header,
-  // so private file downloads always returned 403.
-  const handleDownload = async () => {
-    try {
-      toast.loading("Preparing download…", { id: "dl" });
-      const response = await api.get(`/api/files/download/${file._id}`, {
-        responseType: "blob",
-      });
-      toast.dismiss("dl");
-      const blobUrl = URL.createObjectURL(response.data);
-      const a = document.createElement("a");
-      a.href     = blobUrl;
-      a.download = file.originalName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(blobUrl);
+      const nextStarred = !file.isStarred;
+      if (nextStarred) await api.post(`/api/files/${file._id}/star`);
+      else await api.delete(`/api/files/${file._id}/star`);
+      setFile((prev) => ({ ...prev, isStarred: nextStarred }));
+      onStar?.(file._id, nextStarred);
+      toast.success(nextStarred ? "Starred!" : "Unstarred.");
     } catch {
-      toast.dismiss("dl");
-      toast.error("Download failed.");
+      toast.error("Failed to update star.");
+    } finally {
+      setStarring(false);
     }
   };
 
-  const handleRenameComplete = (newName) => {
-    if (newName) {
-      setFile((f) => ({ ...f, originalName: newName }));
-      onRefresh?.();
+  const preview = useMemo(() => {
+    if (urlLoading) {
+      return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-glow" /></div>;
     }
-    setRenaming(false);
-  };
 
-  // ── Render preview based on file type ──────────────────────────────────────
-  const renderPreview = () => {
-    if (urlLoading) return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-glow" /></div>;
-    if (!signedUrl && !isTextFile(file) && !OFFICE_MIMES[file.mimetype]) {
+    if (!signedUrl) {
       return (
         <div className="flex flex-col items-center gap-4 py-16 text-center">
           <span className="text-6xl">{getFileIcon(file.mimetype)}</span>
@@ -341,39 +494,35 @@ export default function FilePreviewModal({
       );
     }
 
-    const mime = file.mimetype || "";
-    if (mime.startsWith("image/"))  return <ImageViewer src={signedUrl} alt={file.originalName} />;
-    if (mime.startsWith("video/"))  return <VideoPlayer src={signedUrl} file={file} />;
-    if (mime.startsWith("audio/"))  return <AudioPlayer src={signedUrl} file={file} />;
-    if (mime === "application/pdf") return <PdfViewer src={signedUrl} />;
-    if (OFFICE_MIMES[mime])         return <OfficePreview file={file} downloadUrl={signedUrl} />;
-    if (isTextFile(file))           return <TextFetcher file={file} downloadUrl={signedUrl} />;
+    if (file.mimetype?.startsWith("image/")) return <ImageViewer src={signedUrl} alt={file.originalName} />;
+    if (file.mimetype?.startsWith("video/")) return <video controls className="w-full max-h-[480px] rounded-xl border border-surface-4 bg-black" src={signedUrl} preload="metadata" />;
+    if (file.mimetype?.startsWith("audio/")) return <AudioPlayer src={signedUrl} file={file} />;
+    if (file.mimetype === "application/pdf") return <PdfViewer src={signedUrl} />;
+    if (isEpubFile(file)) return <EbookPreview file={file} downloadUrl={signedUrl} />;
+    if (OFFICE_MIMES[file.mimetype]) return <OfficePreview file={file} downloadUrl={signedUrl} />;
+    if (isTextFile(file)) return <TextFetcher file={file} downloadUrl={signedUrl} />;
 
-    return (
-      <div className="flex flex-col items-center gap-4 py-16 text-center">
-        <span className="text-6xl">{getFileIcon(mime)}</span>
-        <p className="text-gray-400 text-sm">No preview available</p>
-        <button onClick={handleDownload} disabled={!signedUrl} className="btn-primary px-4 py-2">
-          <Download size={14} /> Download
-        </button>
-      </div>
-    );
-  };
+    return <BrowserFallbackViewer src={signedUrl} file={file} />;
+  }, [file, handleDownload, signedUrl, urlLoading]);
 
   return (
     <>
-      {/* Backdrop */}
       <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div
-          className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-3xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up"
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* ── Header ────────────────────────────────────────────────── */}
+        <div className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up" onClick={(event) => event.stopPropagation()}>
           <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-3 flex-shrink-0">
             <span className="text-2xl flex-shrink-0">{getFileIcon(file.mimetype)}</span>
 
             {renaming ? (
-              <InlineRename file={file} onDone={handleRenameComplete} />
+              <InlineRename
+                file={file}
+                onDone={(newName) => {
+                  if (newName) {
+                    setFile((prev) => ({ ...prev, originalName: newName }));
+                    onRefresh?.();
+                  }
+                  setRenaming(false);
+                }}
+              />
             ) : (
               <div className="flex-1 min-w-0">
                 <h2 className="font-display font-bold text-white text-base truncate" title={file.originalName}>
@@ -383,78 +532,46 @@ export default function FilePreviewModal({
                   <span className="text-xs text-gray-500 font-mono">{formatBytes(file.size)}</span>
                   <LabelDot labels={file.labels} />
                   {file.isStarred && <Star size={11} className="text-yellow-400 fill-yellow-400" />}
+                  {organizerMeta?.aliases?.length > 0 && (
+                    <span className="text-[10px] text-brand-glow font-mono">@{organizerMeta.aliases[0]}</span>
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Header actions */}
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {isOwner && <LabelPicker file={file} onUpdate={(updated) => setFile(updated)} />}
 
-              <button
-                onClick={handleStar}
-                disabled={starring}
-                title={file.isStarred ? "Unstar" : "Star"}
-                className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all"
-              >
-                {file.isStarred ? <Star size={15} className="fill-yellow-400 text-yellow-400" /> : <Star size={15} />}
+              <button onClick={handleStar} disabled={starring} className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all">
+                <Star size={15} className={file.isStarred ? "fill-yellow-400 text-yellow-400" : ""} />
               </button>
 
               {isOwner && (
-                <button
-                  onClick={() => setRenaming(!renaming)}
-                  title="Rename"
-                  className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
-                >
+                <button onClick={() => setRenaming((prev) => !prev)} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
                   <Edit3 size={15} />
                 </button>
               )}
 
-              <button
-                onClick={() => setShowShare(true)}
-                title="Share"
-                className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all"
-              >
+              <button onClick={() => setShowShare(true)} className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all">
                 <Share2 size={15} />
               </button>
-
-              <button
-                onClick={handleDownload}
-                disabled={!signedUrl}
-                title="Download"
-                className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
-              >
+              <button onClick={handleDownload} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
                 <Download size={15} />
               </button>
-
               {isOwner && (
-                <button
-                  onClick={handleDelete}
-                  disabled={deleting}
-                  title="Delete"
-                  className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all"
-                >
+                <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all">
                   {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 </button>
               )}
 
-              {/* Prev / Next */}
               {files.length > 1 && (
                 <>
                   <div className="w-px h-5 bg-surface-4 mx-1" />
-                  <button
-                    onClick={() => setFile(files[currentIdx - 1])}
-                    disabled={!hasPrev}
-                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
-                  >
+                  <button onClick={() => setFile(files[currentIndex - 1])} disabled={!hasPrev} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
                     <ChevronLeft size={15} />
                   </button>
-                  <span className="text-xs text-gray-600 font-mono">{currentIdx + 1}/{files.length}</span>
-                  <button
-                    onClick={() => setFile(files[currentIdx + 1])}
-                    disabled={!hasNext}
-                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
-                  >
+                  <span className="text-xs text-gray-600 font-mono">{currentIndex + 1}/{files.length}</span>
+                  <button onClick={() => setFile(files[currentIndex + 1])} disabled={!hasNext} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
                     <ChevronRight size={15} />
                   </button>
                 </>
@@ -466,16 +583,13 @@ export default function FilePreviewModal({
             </div>
           </div>
 
-          {/* ── Tabs ──────────────────────────────────────────────────── */}
           <div className="flex gap-0.5 px-5 pt-3 border-b border-surface-3 flex-shrink-0 overflow-x-auto">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
                 onClick={() => setTab(id)}
                 className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium border-b-2 transition-all whitespace-nowrap -mb-px ${
-                  tab === id
-                    ? "border-brand text-brand-glow"
-                    : "border-transparent text-gray-500 hover:text-gray-300"
+                  tab === id ? "border-brand text-brand-glow" : "border-transparent text-gray-500 hover:text-gray-300"
                 }`}
               >
                 <Icon size={12} />
@@ -484,27 +598,33 @@ export default function FilePreviewModal({
             ))}
           </div>
 
-          {/* ── Tab Content ───────────────────────────────────────────── */}
           <div className="flex-1 overflow-y-auto p-5">
-            {tab === "preview"  && <div className="animate-fade-up">{renderPreview()}</div>}
-            {tab === "info"     && <InfoTab file={file} />}
+            {tab === "preview" && <div className="animate-fade-up">{preview}</div>}
+            {tab === "info" && <InfoTab file={file} organizerMeta={organizerMeta} />}
+            {tab === "organize" && (
+              <OrganizerTab
+                file={file}
+                files={files}
+                organizerMeta={organizerMeta}
+                onOrganizerUpdate={onOrganizerUpdate}
+                onRefresh={onRefresh}
+              />
+            )}
             {tab === "versions" && (
               <FileVersionHistory
                 fileId={file._id}
-                onRestore={() => { onRefresh?.(); onClose(); }}
+                onRestore={() => {
+                  onRefresh?.();
+                  onClose();
+                }}
               />
             )}
-            {tab === "activity" && (
-              <FileActivityLog fileId={file._id} isOwner={isOwner} />
-            )}
+            {tab === "activity" && <FileActivityLog fileId={file._id} isOwner={isOwner} />}
           </div>
         </div>
       </div>
 
-      {/* Share modal */}
-      {showShare && (
-        <AdvancedShareModal file={file} onClose={() => setShowShare(false)} />
-      )}
+      {showShare && <AdvancedShareModal file={file} onClose={() => setShowShare(false)} />}
     </>
   );
 }

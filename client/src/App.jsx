@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
 import { ThemeProvider }         from "./context/ThemeContext";
+import { ActionHistoryProvider } from "./context/ActionHistoryContext";
 import { BrandingProvider }      from "./components/BrandingProvider";
 import AppToaster                from "./components/AppToaster";
 import LoginPage          from "./pages/LoginPage";
@@ -119,10 +120,12 @@ export default function App() {
   return (
     <ThemeProvider>
       <BrandingProvider>
-        <AuthProvider>
-          <AppRoutes />
-          <AppToaster />
-        </AuthProvider>
+        <ActionHistoryProvider>
+          <AuthProvider>
+            <AppRoutes />
+            <AppToaster />
+          </AuthProvider>
+        </ActionHistoryProvider>
       </BrandingProvider>
     </ThemeProvider>
   );

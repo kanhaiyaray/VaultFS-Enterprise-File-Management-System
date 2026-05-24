@@ -8,6 +8,7 @@
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
 const sharp = require("sharp");
 const archiver = require("archiver");
 const unzipper = require("unzipper");
@@ -409,17 +410,26 @@ const downloadFile = async (req, res, next) => {
       return res.status(404).json({ success: false, message: "File not found." });
 
     const isOwner = req.user && file.owner.toString() === req.user.id;
+    const rawToken = req.query.accessToken;
+    let hasSignedAccess = false;
 
-    if (!isOwner) {
+    if (rawToken) {
+      try {
+        const decoded = jwt.verify(rawToken, process.env.JWT_SECRET);
+        hasSignedAccess = decoded.fileId === file._id.toString();
+      } catch {
+        hasSignedAccess = false;
+      }
+    }
+
+    if (!isOwner && !hasSignedAccess) {
       if (!file.isPublic)
         return res.status(403).json({ success: false, message: "Access denied." });
 
       if (file.sharePassword) {
-        const rawToken = req.query.accessToken;
         if (!rawToken)
           return res.status(401).json({ success: false, message: "Access token required for this protected file." });
         try {
-          const jwt = require("jsonwebtoken");
           const decoded = jwt.verify(rawToken, process.env.JWT_SECRET);
           if (decoded.fileId !== file._id.toString())
             throw new Error("Token/file mismatch");
@@ -460,7 +470,8 @@ const downloadFile = async (req, res, next) => {
     await logAccess(file._id, req.user?.id, "download", req);
     if (req.user) logActivity(req, req.user.id, "download", { filename: file.originalName, size: file.size });
 
-    res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(file.originalName)}"`);
+    const dispositionType = req.query.inline === "1" ? "inline" : "attachment";
+    res.setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(file.originalName)}"`);
     res.setHeader("Content-Type", file.mimetype || "application/octet-stream");
     res.setHeader("Content-Length", file.size);
     return res.sendFile(path.resolve(file.path));
@@ -483,7 +494,7 @@ const getSignedUrl = async (req, res, next) => {
       { expiresIn: "5m" }
     );
 
-    const url = `/api/files/download/${file._id}?accessToken=${accessToken}`;
+    const url = `/api/files/download/${file._id}?accessToken=${accessToken}&inline=1`;
     return res.json({ success: true, url, filename: file.originalName });
   } catch (err) { next(err); }
 };
