@@ -1,3 +1,4 @@
+// client/src/components/Layout.jsx
 import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -35,6 +36,141 @@ const ACTIVITY_ICONS = {
   banned:         "🚫",
 };
 
+// ── Animated Storage Gauge Component ──────────────────────────────────────────
+function AnimatedStorageGauge({ percent, used, total, className = "" }) {
+  const [animatedPercent, setAnimatedPercent] = useState(0);
+  const [previousPercent, setPreviousPercent] = useState(0);
+  
+  useEffect(() => {
+    // Animate from previous value to new value
+    const target = Math.min(percent, 100);
+    const start = previousPercent;
+    const duration = 800;
+    const startTime = performance.now();
+    
+    const animate = (now) => {
+      const elapsed = now - startTime;
+      const progress = Math.min(1, elapsed / duration);
+      // Ease out cubic for smooth deceleration
+      const easeOut = 1 - Math.pow(1 - progress, 3);
+      const current = start + (target - start) * easeOut;
+      setAnimatedPercent(current);
+      
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      }
+    };
+    
+    requestAnimationFrame(animate);
+    setPreviousPercent(target);
+  }, [percent, previousPercent]);
+  
+  // Determine color based on storage level
+  const getGaugeColor = () => {
+    if (percent > 90) return "from-red-500 to-red-600";
+    if (percent > 70) return "from-amber-500 to-amber-600";
+    return "from-brand to-brand-glow";
+  };
+  
+  const getGlowColor = () => {
+    if (percent > 90) return "shadow-red-500/20";
+    if (percent > 70) return "shadow-amber-500/20";
+    return "shadow-brand-glow/20";
+  };
+  
+  const getTextColor = () => {
+    if (percent > 90) return "text-red-400";
+    if (percent > 70) return "text-amber-400";
+    return "text-brand-glow";
+  };
+  
+  const getStatusIcon = () => {
+    if (percent > 90) return "⚠️";
+    if (percent > 70) return "📈";
+    return "✓";
+  };
+  
+  const getStatusMessage = () => {
+    if (percent > 95) return "Critical - Clean up space";
+    if (percent > 90) return "Almost full - Action needed";
+    if (percent > 80) return "Getting full";
+    if (percent > 70) return "Moderate usage";
+    return "Healthy";
+  };
+  
+  const isWarning = percent > 85;
+  
+  return (
+    <div className={`space-y-2 ${className}`}>
+      {/* Header with usage numbers */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <HardDrive size={12} className="text-gray-500" />
+          <span className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+            Storage
+          </span>
+        </div>
+        <span className={`text-[11px] font-mono font-semibold ${getTextColor()} transition-colors duration-300`}>
+          {used} / {total}
+        </span>
+      </div>
+      
+      {/* Gauge bar with glow effect */}
+      <div className="relative">
+        <div className="h-2.5 bg-surface-3 rounded-full overflow-hidden shadow-inner">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${getGaugeColor()} transition-all duration-700 ease-out shadow-lg ${getGlowColor()}`}
+            style={{ width: `${animatedPercent}%` }}
+          />
+        </div>
+        
+        {/* Warning pulse effect when near limit */}
+        {isWarning && animatedPercent > 85 && (
+          <div 
+            className="absolute inset-0 rounded-full overflow-hidden pointer-events-none"
+            style={{ opacity: 0.3 }}
+          >
+            <div className="absolute inset-0 bg-red-500/30 animate-pulse rounded-full" />
+          </div>
+        )}
+      </div>
+      
+      {/* Status indicator with icon and message */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className="text-[10px] text-gray-600">
+            {getStatusIcon()}
+          </span>
+          <span className={`text-[10px] font-medium transition-colors duration-300 ${isWarning ? "text-red-400" : "text-gray-500"}`}>
+            {getStatusMessage()}
+          </span>
+        </div>
+        <span className="text-[10px] font-mono text-gray-600">
+          {Math.round(animatedPercent)}%
+        </span>
+      </div>
+      
+      {/* Animated progress indicator dots */}
+      <div className="flex gap-0.5 mt-0.5">
+        {[0, 25, 50, 75, 100].map((threshold) => (
+          <div
+            key={threshold}
+            className={`h-1 flex-1 rounded-full transition-all duration-500 ${
+              animatedPercent >= threshold
+                ? percent > 90 
+                  ? "bg-red-500/40"
+                  : percent > 70
+                    ? "bg-amber-500/40"
+                    : "bg-brand/30"
+                : "bg-surface-4"
+            }`}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function Layout({ children }) {
   const { user, logout }  = useAuth();
   const { branding }      = useBranding();
@@ -47,6 +183,11 @@ export default function Layout({ children }) {
   const [activities,    setActivities]    = useState([]);
   const [unread,        setUnread]        = useState(0);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  
+  // Storage values for the animated gauge
+  const storagePercent = parseFloat(user?.storagePercent || 0);
+  const storageUsedFormatted = formatBytes(user?.storageUsed);
+  const storageLimitFormatted = formatBytes(user?.storageLimit);
 
   useEffect(() => {
     on("activity", (event) => {
@@ -88,8 +229,6 @@ export default function Layout({ children }) {
   }, [navigate, redo, undo]);
 
   const handleLogout   = () => { logout(); navigate("/login"); };
-  const storagePercent = parseFloat(user?.storagePercent || 0);
-  const storageColor   = storagePercent > 90 ? "bg-accent-red" : storagePercent > 70 ? "bg-accent-amber" : "bg-brand";
   const displayName    = user?.displayName || user?.username;
 
   // Dynamic app name from branding
@@ -182,7 +321,6 @@ export default function Layout({ children }) {
           {user?.role === "admin" && (
             <>
               <div className="border-t border-surface-3 my-2" />
-              {/* Admin panel link with portal badge */}
               <NavLink
                 to="/admin"
                 onClick={() => setSidebarOpen(false)}
@@ -296,28 +434,19 @@ export default function Layout({ children }) {
           </div>
         )}
 
-        {/* Storage + user */}
+        {/* Storage + user — with ANIMATED GAUGE */}
         <div className="p-4 border-t border-surface-3">
+          {/* Animated Storage Gauge */}
           <div className="bg-surface-2 rounded-lg p-3 mb-3">
-            <div className="flex items-center gap-2 mb-2">
-              <HardDrive size={13} className="text-gray-500" />
-              <span className="text-xs text-gray-500 font-medium">Storage</span>
-              <span className="ml-auto text-xs text-gray-400 font-mono">{storagePercent}%</span>
-            </div>
-            <div className="h-1.5 bg-surface-4 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${storageColor}`}
-                style={{ width: `${Math.min(storagePercent, 100)}%` }}
-              />
-            </div>
-            <div className="flex justify-between mt-1.5">
-              <span className="text-[10px] text-gray-600">{formatBytes(user?.storageUsed)}</span>
-              <span className="text-[10px] text-gray-600">{formatBytes(user?.storageLimit)}</span>
-            </div>
+            <AnimatedStorageGauge
+              percent={storagePercent}
+              used={storageUsedFormatted}
+              total={storageLimitFormatted}
+            />
           </div>
 
+          {/* User info with circular avatar */}
           <div className="flex items-center gap-3">
-            {/* BUG FIX: rounded-full + object-cover ensures perfectly circular avatar */}
             <div className="w-8 h-8 rounded-full overflow-hidden border border-surface-4 flex-shrink-0">
               {(user?.avatarUrl || user?.avatar) ? (
                 <img
