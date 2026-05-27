@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import {
   CheckSquare,
   ChevronDown,
@@ -23,6 +24,7 @@ import toast from "react-hot-toast";
 import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { useActionHistory } from "../context/ActionHistoryContext";
+import { useLocalStorage } from "../hooks/useLocalStorage";
 import { formatBytes, formatDate, getFileIcon, truncate } from "../utils/helpers";
 import FilePreviewModal from "../components/FilePreviewModal";
 import AdvancedSearch from "../components/AdvancedSearch";
@@ -40,6 +42,7 @@ function FileCard({ file, isSelected, selectMode, onToggle, onOpen }) {
   return (
     <div
       onClick={() => (selectMode ? onToggle(file._id) : onOpen(file))}
+      title={!selectMode ? "Double-click to preview" : undefined}
       className={`card group cursor-pointer overflow-hidden transition-all duration-150 hover:border-surface-5 ${
         isSelected ? "border-brand/50 bg-brand/5" : ""
       }`}
@@ -111,6 +114,7 @@ function FileRow({ file, isSelected, selectMode, onToggle, onOpen }) {
   return (
     <div
       onClick={() => (selectMode ? onToggle(file._id) : onOpen(file))}
+      title={!selectMode ? "Double-click to preview" : undefined}
       className={`card p-3 flex items-center gap-3 group cursor-pointer hover:border-surface-5 transition-all duration-150 ${
         isSelected ? "border-brand/50 bg-brand/5" : ""
       }`}
@@ -175,13 +179,16 @@ const ORGANIZER_VIEWS = [
 export default function DashboardPage() {
   const { user, refreshUser } = useAuth();
   const { pushAction } = useActionHistory();
+  const location = useLocation();
+  const fileListContainerRef = useRef(null);
+
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({});
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("createdAt:desc");
-  const [viewMode, setViewMode] = useState("grid");
+  const [viewMode, setViewMode] = useLocalStorage("vaultfs_view_mode", "grid");
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [labelFilter, setLabelFilter] = useState(null);
@@ -219,11 +226,27 @@ export default function DashboardPage() {
     }
   }, [sortBy]);
 
+  // Auto‑refresh when navigating back to dashboard
+  useEffect(() => {
+    if (location.pathname === "/dashboard") {
+      fetchFiles(1);
+    }
+  }, [location.pathname, fetchFiles]);
+
+  // Initial load
   useEffect(() => {
     setPage(1);
     fetchFiles(1);
   }, [fetchFiles]);
 
+  // Scroll to top when page changes
+  useEffect(() => {
+    if (fileListContainerRef.current) {
+      fileListContainerRef.current.scrollTop = 0;
+    }
+  }, [page]);
+
+  // Keyboard shortcuts
   useEffect(() => {
     const handler = (event) => {
       const target = event.target;
@@ -238,7 +261,7 @@ export default function DashboardPage() {
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  }, [setViewMode]);
 
   const filesAfterLabel = labelFilter
     ? smartFolders.filteredFiles.filter((file) => file.labels?.some((label) => label.name === labelFilter))
@@ -543,43 +566,45 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {loading && files.length === 0 ? (
-          <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3" : "space-y-2"}>
-            {[...Array(12)].map((_, index) => (
-              <div key={index} className={`skeleton rounded-xl ${viewMode === "grid" ? "aspect-video" : "h-16"}`} />
-            ))}
-          </div>
-        ) : (
-          <VirtualFileBrowser
-            items={filteredFiles}
-            viewMode={viewMode}
-            loading={loading}
-            hasMore={page < (pagination.pages || 1)}
-            onLoadMore={loadMore}
-            emptyState={emptyState}
-            renderItem={(file) => (
-              viewMode === "grid" ? (
-                <FileCard
-                  key={file._id}
-                  file={file}
-                  isSelected={selectedIds.has(file._id)}
-                  selectMode={selectMode}
-                  onToggle={toggleSelect}
-                  onOpen={handleOpenPreview}
-                />
-              ) : (
-                <FileRow
-                  key={file._id}
-                  file={file}
-                  isSelected={selectedIds.has(file._id)}
-                  selectMode={selectMode}
-                  onToggle={toggleSelect}
-                  onOpen={handleOpenPreview}
-                />
-              )
-            )}
-          />
-        )}
+        <div ref={fileListContainerRef} className="flex-1 min-h-0 overflow-hidden">
+          {loading && files.length === 0 ? (
+            <div className={viewMode === "grid" ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3" : "space-y-2"}>
+              {[...Array(12)].map((_, index) => (
+                <div key={index} className={`skeleton rounded-xl ${viewMode === "grid" ? "aspect-video" : "h-16"}`} />
+              ))}
+            </div>
+          ) : (
+            <VirtualFileBrowser
+              items={filteredFiles}
+              viewMode={viewMode}
+              loading={loading}
+              hasMore={page < (pagination.pages || 1)}
+              onLoadMore={loadMore}
+              emptyState={emptyState}
+              renderItem={(file) => (
+                viewMode === "grid" ? (
+                  <FileCard
+                    key={file._id}
+                    file={file}
+                    isSelected={selectedIds.has(file._id)}
+                    selectMode={selectMode}
+                    onToggle={toggleSelect}
+                    onOpen={handleOpenPreview}
+                  />
+                ) : (
+                  <FileRow
+                    key={file._id}
+                    file={file}
+                    isSelected={selectedIds.has(file._id)}
+                    selectMode={selectMode}
+                    onToggle={toggleSelect}
+                    onOpen={handleOpenPreview}
+                  />
+                )
+              )}
+            />
+          )}
+        </div>
       </div>
 
       {previewFile && (
