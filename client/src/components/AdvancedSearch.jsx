@@ -5,20 +5,16 @@
  *  - Full-text query
  *  - MIME type / tag / date range filters
  *  - Boolean mode: AND / OR / NOT
- *  - Saved searches (persisted to localStorage)
+ *  - Saved searches (persisted to localStorage) with reordering (up/down)
+ *  - Skeleton loading while fetching results
  *  - Results rendered inline with file cards
- *
- * Usage:
- *   import AdvancedSearch from "../components/AdvancedSearch";
- *   // In DashboardPage, add a "Search" button that mounts this component.
- *   {showSearch && <AdvancedSearch onClose={() => setShowSearch(false)} onFileClick={handlePreview} />}
  */
 
 import { useState, useCallback, useEffect } from "react";
 import {
   Search, X, Filter, Save, Clock, Tag, FileType, Calendar,
   Loader2, ChevronRight, BookmarkPlus, Bookmark, Trash2, Star,
-  SlidersHorizontal, Plus,
+  SlidersHorizontal, Plus, ChevronUp, ChevronDown,
 } from "lucide-react";
 import api from "../utils/api";
 import { formatBytes, formatDate, getFileIcon, truncate } from "../utils/helpers";
@@ -36,24 +32,24 @@ function saveSaved(arr) {
 }
 
 const FILE_TYPES = [
-  { label: "Images",    value: "image"       },
-  { label: "PDFs",      value: "application/pdf" },
-  { label: "Video",     value: "video"       },
-  { label: "Audio",     value: "audio"       },
+  { label: "Images", value: "image" },
+  { label: "PDFs", value: "application/pdf" },
+  { label: "Video", value: "video" },
+  { label: "Audio", value: "audio" },
   { label: "Documents", value: "application/vnd" },
-  { label: "Archives",  value: "application/zip" },
-  { label: "Text",      value: "text"        },
+  { label: "Archives", value: "application/zip" },
+  { label: "Text", value: "text" },
 ];
 
 const SORT_OPTIONS = [
-  { label: "Newest",    value: "createdAt:desc"  },
-  { label: "Oldest",    value: "createdAt:asc"   },
-  { label: "Largest",   value: "size:desc"       },
-  { label: "Smallest",  value: "size:asc"        },
-  { label: "Name A–Z",  value: "originalName:asc"},
+  { label: "Newest", value: "createdAt:desc" },
+  { label: "Oldest", value: "createdAt:asc" },
+  { label: "Largest", value: "size:desc" },
+  { label: "Smallest", value: "size:asc" },
+  { label: "Name A–Z", value: "originalName:asc" },
 ];
 
-// ── Filter Builder ─────────────────────────────────────────────────────────────
+// ── Filter Chip ─────────────────────────────────────────────────────────────
 function FilterChip({ label, onRemove, color = "bg-brand/10 border-brand/20 text-brand-glow" }) {
   return (
     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border ${color}`}>
@@ -65,7 +61,7 @@ function FilterChip({ label, onRemove, color = "bg-brand/10 border-brand/20 text
   );
 }
 
-// ── Result Card ───────────────────────────────────────────────────────────────
+// ── Result Card ─────────────────────────────────────────────────────────────
 function ResultCard({ file, onClick }) {
   return (
     <div
@@ -93,34 +89,52 @@ function ResultCard({ file, onClick }) {
   );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Skeleton Card (loading placeholder) ─────────────────────────────────────
+function SkeletonCard() {
+  return (
+    <div className="card p-3 flex items-center gap-3 animate-pulse">
+      <div className="w-8 h-8 rounded bg-surface-3 flex-shrink-0" />
+      <div className="flex-1 space-y-2">
+        <div className="h-4 bg-surface-3 rounded w-3/4" />
+        <div className="flex gap-2">
+          <div className="h-3 bg-surface-3 rounded w-16" />
+          <div className="h-3 bg-surface-3 rounded w-20" />
+        </div>
+      </div>
+      <div className="w-4 h-4 rounded-full bg-surface-3" />
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────
 export default function AdvancedSearch({ onClose, onFileClick }) {
   // Query state
-  const [query,     setQuery]     = useState("");
-  const [operator,  setOperator]  = useState("AND");    // AND | OR
-  const [notTerms,  setNotTerms]  = useState([]);       // NOT terms
-  const [notInput,  setNotInput]  = useState("");
-  const [mimeFilter, setMime]     = useState("");
-  const [tagFilter,  setTagF]     = useState([]);
-  const [tagInput,   setTagInput] = useState("");
-  const [dateFrom,   setDateFrom] = useState("");
-  const [dateTo,     setDateTo]   = useState("");
-  const [sortBy,     setSortBy]   = useState("createdAt:desc");
+  const [query, setQuery] = useState("");
+  const [operator, setOperator] = useState("AND");
+  const [notTerms, setNotTerms] = useState([]);
+  const [notInput, setNotInput] = useState("");
+  const [mimeFilter, setMime] = useState("");
+  const [tagFilter, setTagF] = useState([]);
+  const [tagInput, setTagInput] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortBy, setSortBy] = useState("createdAt:desc");
   const [starredOnly, setStarred] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
 
   // Results
-  const [results,  setResults]  = useState([]);
-  const [loading,  setLoading]  = useState(false);
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
-  const [total,    setTotal]    = useState(0);
-  const [page,     setPage]     = useState(1);
-  const [pages,    setPages]    = useState(1);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
 
   // Saved searches
-  const [saved,    setSaved]    = useState(loadSaved);
+  const [saved, setSaved] = useState(loadSaved);
   const [showSaved, setShowSaved] = useState(false);
 
+  // ── Build API params ─────────────────────────────────────────────────────
   const buildParams = useCallback((pg = 1) => {
     const [sortField, sortOrder] = sortBy.split(":");
     const params = {
@@ -128,7 +142,6 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
       sortBy: sortField, order: sortOrder,
     };
 
-    // Build query string with boolean mode
     let q = query.trim();
     if (notTerms.length) {
       q += " " + notTerms.map((t) => `-${t}`).join(" ");
@@ -136,15 +149,16 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
     if (q) params.q = q;
     if (operator === "OR" && q) params.operator = "or";
 
-    if (mimeFilter)           params.mimetype = mimeFilter;
-    if (tagFilter.length)     params.tags     = tagFilter.join(",");
-    if (dateFrom)             params.dateFrom = dateFrom;
-    if (dateTo)               params.dateTo   = dateTo;
-    if (starredOnly)          params.starred  = true;
+    if (mimeFilter) params.mimetype = mimeFilter;
+    if (tagFilter.length) params.tags = tagFilter.join(",");
+    if (dateFrom) params.dateFrom = dateFrom;
+    if (dateTo) params.dateTo = dateTo;
+    if (starredOnly) params.starred = true;
 
     return params;
   }, [query, operator, notTerms, mimeFilter, tagFilter, dateFrom, dateTo, sortBy, starredOnly]);
 
+  // ── Perform search ───────────────────────────────────────────────────────
   const doSearch = useCallback(async (pg = 1, append = false) => {
     const params = buildParams(pg);
     if (!params.q && !params.mimetype && !params.tags && !params.starred && !params.dateFrom) {
@@ -183,6 +197,7 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
     setTagInput("");
   };
 
+  // ── Saved searches helpers ──────────────────────────────────────────────
   const saveSearch = () => {
     const label = query || `Filter: ${[mimeFilter, ...tagFilter].filter(Boolean).join(", ")}`;
     const entry = { label, query, operator, notTerms, mimeFilter, tagFilter, dateFrom, dateTo, starredOnly, savedAt: new Date().toISOString() };
@@ -210,14 +225,27 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
     saveSaved(updated);
   };
 
+  // Reorder saved search
+  const moveSaved = (index, direction) => {
+    const newIndex = index + direction;
+    if (newIndex < 0 || newIndex >= saved.length) return;
+    const updated = [...saved];
+    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
+    setSaved(updated);
+    saveSaved(updated);
+  };
+
+  // ── Active filters for display ──────────────────────────────────────────
   const activeFilters = [
     mimeFilter && { label: `Type: ${FILE_TYPES.find((f) => f.value === mimeFilter)?.label || mimeFilter}`, onRemove: () => setMime("") },
     ...tagFilter.map((t) => ({ label: `#${t}`, onRemove: () => setTagF((p) => p.filter((x) => x !== t)) })),
     dateFrom && { label: `From: ${dateFrom}`, onRemove: () => setDateFrom("") },
-    dateTo   && { label: `To: ${dateTo}`,     onRemove: () => setDateTo("")   },
+    dateTo && { label: `To: ${dateTo}`, onRemove: () => setDateTo("") },
     starredOnly && { label: "⭐ Starred only", onRemove: () => setStarred(false) },
     ...notTerms.map((t) => ({ label: `NOT: ${t}`, onRemove: () => setNotTerms((p) => p.filter((x) => x !== t)), color: "bg-red-900/10 border-red-900/20 text-accent-red" })),
   ].filter(Boolean);
+
+  const skeletonCount = 4;
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-start justify-center pt-16 p-4" onClick={onClose}>
@@ -240,15 +268,13 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
           {/* Search bar */}
           <div className="p-4 space-y-3">
             <div className="flex gap-2">
-              {/* Operator toggle */}
               <div className="flex bg-surface-2 border border-surface-4 rounded-lg p-0.5 flex-shrink-0">
                 {["AND", "OR"].map((op) => (
                   <button
                     key={op}
                     onClick={() => setOperator(op)}
-                    className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition-all ${
-                      operator === op ? "bg-surface-1 text-white shadow-sm" : "text-gray-500"
-                    }`}
+                    className={`px-2.5 py-1.5 rounded-md text-xs font-bold transition-all ${operator === op ? "bg-surface-1 text-white shadow-sm" : "text-gray-500"
+                      }`}
                   >
                     {op}
                   </button>
@@ -276,7 +302,7 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
               </button>
             </div>
 
-            {/* Active filter chips */}
+            {/* Active filters */}
             {activeFilters.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {activeFilters.map((f, i) => (
@@ -295,11 +321,10 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setShowFilters(!showFilters)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${
-                  showFilters || activeFilters.length
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs border transition-all ${showFilters || activeFilters.length
                     ? "bg-brand/10 border-brand/25 text-brand-glow"
                     : "btn-ghost"
-                }`}
+                  }`}
               >
                 <SlidersHorizontal size={11} />
                 Filters
@@ -332,12 +357,11 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
               )}
             </div>
 
-            {/* ── Filters panel ───────────────────────────────────────── */}
+            {/* Filters panel */}
             {showFilters && (
               <div className="card p-4 space-y-4 animate-fade-up">
-                {/* File type */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-2 flex items-center gap-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mb-2">
                     <FileType size={11} /> File Type
                   </label>
                   <div className="flex flex-wrap gap-1.5">
@@ -345,11 +369,10 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
                       <button
                         key={ft.value}
                         onClick={() => setMime(mimeFilter === ft.value ? "" : ft.value)}
-                        className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${
-                          mimeFilter === ft.value
+                        className={`px-2.5 py-1 rounded-lg text-xs border transition-all ${mimeFilter === ft.value
                             ? "bg-brand/15 border-brand/30 text-brand-glow"
                             : "bg-surface-2 border-surface-4 text-gray-400 hover:text-white"
-                        }`}
+                          }`}
                       >
                         {ft.label}
                       </button>
@@ -357,9 +380,8 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
                   </div>
                 </div>
 
-                {/* Tags */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-2 flex items-center gap-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mb-2">
                     <Tag size={11} /> Tags
                   </label>
                   <div className="flex gap-2">
@@ -374,18 +396,16 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
                   </div>
                 </div>
 
-                {/* Date range */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-2 flex items-center gap-1.5">
+                  <label className="flex items-center gap-1.5 text-xs font-medium text-gray-400 mb-2">
                     <Calendar size={11} /> Date Range (uploaded)
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     <input type="date" className="input text-xs" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
-                    <input type="date" className="input text-xs" value={dateTo}   onChange={(e) => setDateTo(e.target.value)}   />
+                    <input type="date" className="input text-xs" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                   </div>
                 </div>
 
-                {/* NOT terms */}
                 <div>
                   <label className="block text-xs font-medium text-gray-400 mb-2">Exclude (NOT operator)</label>
                   <div className="flex gap-2">
@@ -400,7 +420,6 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
                   </div>
                 </div>
 
-                {/* Starred only */}
                 <div className="flex items-center gap-3">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -418,50 +437,79 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
               </div>
             )}
 
-            {/* ── Saved searches ───────────────────────────────────────── */}
+            {/* Saved searches panel – with always-visible buttons */}
             {showSaved && (
-              <div className="card p-3 space-y-1.5 animate-fade-up">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 flex items-center gap-1.5">
-                  <Clock size={10} /> Saved Searches
-                </p>
+              <div className="card p-3 space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Clock size={10} /> Saved Searches
+                  </p>
+                  <span className="text-[10px] text-gray-600">{saved.length} saved</span>
+                </div>
+
                 {saved.length === 0 ? (
                   <p className="text-xs text-gray-600 py-3 text-center">No saved searches yet.</p>
                 ) : (
-                  saved.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2 group">
-                      <button
-                        onClick={() => loadSavedSearch(s)}
-                        className="flex-1 flex items-center gap-2 p-2 rounded-lg hover:bg-surface-3 transition-colors text-left"
-                      >
-                        <Search size={11} className="text-gray-600 flex-shrink-0" />
-                        <div className="min-w-0">
-                          <p className="text-xs text-gray-300 truncate">{s.label}</p>
-                          <p className="text-[10px] text-gray-600">{formatDate(s.savedAt)}</p>
+                  <div className="space-y-1">
+                    {saved.map((s, idx) => (
+                      <div key={idx} className="flex items-center gap-1 bg-surface-2/50 rounded-lg p-1 pr-2">
+                        <button
+                          onClick={() => loadSavedSearch(s)}
+                          className="flex-1 flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-3 transition-colors text-left"
+                        >
+                          <Search size={11} className="text-gray-500 flex-shrink-0" />
+                          <div className="min-w-0">
+                            <p className="text-xs text-gray-200 truncate">{s.label || "Unnamed"}</p>
+                            <p className="text-[10px] text-gray-600">{formatDate(s.savedAt)}</p>
+                          </div>
+                        </button>
+                        <div className="flex items-center gap-0.5 flex-shrink-0">
+                          {idx > 0 && (
+                            <button
+                              onClick={() => moveSaved(idx, -1)}
+                              className="p-1 text-gray-500 hover:text-brand-glow transition-colors"
+                              title="Move up"
+                            >
+                              <ChevronUp size={12} />
+                            </button>
+                          )}
+                          {idx < saved.length - 1 && (
+                            <button
+                              onClick={() => moveSaved(idx, 1)}
+                              className="p-1 text-gray-500 hover:text-brand-glow transition-colors"
+                              title="Move down"
+                            >
+                              <ChevronDown size={12} />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => deleteSaved(idx)}
+                            className="p-1 text-gray-500 hover:text-accent-red transition-colors"
+                            title="Delete"
+                          >
+                            <Trash2 size={11} />
+                          </button>
                         </div>
-                      </button>
-                      <button
-                        onClick={() => deleteSaved(i)}
-                        className="opacity-0 group-hover:opacity-100 p-1 text-gray-600 hover:text-accent-red transition-all"
-                      >
-                        <Trash2 size={11} />
-                      </button>
-                    </div>
-                  ))
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
           </div>
 
-          {/* ── Results ──────────────────────────────────────────────────── */}
+          {/* Results section with skeleton */}
           {searched && (
             <div className="px-4 pb-4 space-y-2 border-t border-surface-3 pt-4">
               <p className="text-xs text-gray-500 mb-2">
-                {loading ? "Searching…" : `${total} result${total !== 1 ? "s" : ""}`}
+                {loading && results.length === 0 ? "Searching…" : `${total} result${total !== 1 ? "s" : ""}`}
               </p>
 
               {loading && results.length === 0 ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 size={22} className="animate-spin text-brand-glow" />
+                <div className="space-y-1.5">
+                  {[...Array(skeletonCount)].map((_, i) => (
+                    <SkeletonCard key={i} />
+                  ))}
                 </div>
               ) : results.length === 0 ? (
                 <div className="py-8 text-center">
@@ -476,7 +524,6 @@ export default function AdvancedSearch({ onClose, onFileClick }) {
                       <ResultCard key={f._id} file={f} onClick={(file) => { onFileClick?.(file); onClose(); }} />
                     ))}
                   </div>
-
                   {page < pages && (
                     <button
                       onClick={() => doSearch(page + 1, true)}
