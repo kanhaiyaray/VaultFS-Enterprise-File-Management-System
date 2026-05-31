@@ -32,10 +32,10 @@ const StatCard = ({ icon: Icon, label, value, sub, color = "text-brand-glow", bg
 const Badge = ({ children, variant = "default" }) => {
   const styles = {
     default: "bg-surface-3 text-gray-400 border-surface-4",
-    admin:   "bg-amber-900/20 text-amber-300 border-amber-900/30",
-    banned:  "bg-red-900/20 text-accent-red border-red-900/30",
-    active:  "bg-emerald-900/20 text-emerald-400 border-emerald-900/30",
-    brand:   "bg-brand/15 text-brand-glow border-brand/25",
+    admin: "bg-amber-900/20 text-amber-300 border-amber-900/30",
+    banned: "bg-red-900/20 text-accent-red border-red-900/30",
+    active: "bg-emerald-900/20 text-emerald-400 border-emerald-900/30",
+    brand: "bg-brand/15 text-brand-glow border-brand/25",
   };
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium border ${styles[variant]}`}>
@@ -58,9 +58,8 @@ function ConfirmModal({ title, message, confirmLabel = "Confirm", danger = true,
         <div className="flex gap-3">
           <button onClick={onClose} className="btn-ghost flex-1">Cancel</button>
           <button onClick={() => { onConfirm(); onClose(); }}
-            className={`flex-1 justify-center font-semibold rounded-lg px-4 py-2 text-sm transition-all ${
-              danger ? "bg-accent-red/15 text-accent-red border border-red-900/40 hover:bg-accent-red/25" : "btn-primary"
-            }`}>
+            className={`flex-1 justify-center font-semibold rounded-lg px-4 py-2 text-sm transition-all ${danger ? "bg-accent-red/15 text-accent-red border border-red-900/40 hover:bg-accent-red/25" : "btn-primary"
+              }`}>
             {confirmLabel}
           </button>
         </div>
@@ -73,7 +72,7 @@ function ConfirmModal({ title, message, confirmLabel = "Confirm", danger = true,
 //  OVERVIEW TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function OverviewTab() {
-  const [stats,   setStats]   = useState(null);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetch_ = useCallback(async () => {
@@ -88,20 +87,20 @@ function OverviewTab() {
   useEffect(() => { fetch_(); }, [fetch_]);
 
   if (loading) return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-glow" /></div>;
-  if (!stats)  return null;
+  if (!stats) return null;
 
   return (
     <div className="space-y-6">
       {/* Stat grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Users}     label="Total Users"   value={stats.users.total}
+        <StatCard icon={Users} label="Total Users" value={stats.users.total}
           sub={`${stats.users.active} active · ${stats.users.banned} banned`} />
-        <StatCard icon={CheckCircle2} label="Verified"   value={stats.users.verified}
+        <StatCard icon={CheckCircle2} label="Verified" value={stats.users.verified}
           color="text-emerald-400" bg="bg-emerald-900/10 border-emerald-900/20"
           sub={`${Math.round((stats.users.verified / (stats.users.total || 1)) * 100)}% of users`} />
-        <StatCard icon={FileText}  label="Total Files"   value={stats.files.total.toLocaleString()}
+        <StatCard icon={FileText} label="Total Files" value={stats.files.total.toLocaleString()}
           sub={formatBytes(stats.files.totalSize)} />
-        <StatCard icon={Trash2}    label="In Trash"      value={stats.files.trash}
+        <StatCard icon={Trash2} label="In Trash" value={stats.files.trash}
           color="text-accent-red" bg="bg-red-900/10 border-red-900/20" />
       </div>
 
@@ -179,19 +178,19 @@ function OverviewTab() {
 //  USER MANAGEMENT TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function UserManagementTab() {
-  const [users,    setUsers]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState("");
-  const [page,     setPage]     = useState(1);
-  const [pages,    setPages]    = useState(1);
-  const [total,    setTotal]    = useState(0);
-  const [filter,   setFilter]   = useState({ role: "", status: "" });
-  const [confirm,  setConfirm]  = useState(null);
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [filter, setFilter] = useState({ role: "", status: "" });
+  const [confirm, setConfirm] = useState(null);
   const [actionUser, setActionUser] = useState(null);
-  const [banReason, setBanReason]   = useState("");
+  const [banReason, setBanReason] = useState("");
   const [banDuration, setBanDuration] = useState("");
   const [creating, setCreating] = useState(false);
-  const [newUser,  setNewUser]  = useState({ username: "", email: "", password: "", role: "user" });
+  const [newUser, setNewUser] = useState({ username: "", email: "", password: "", role: "user" });
 
   const fetchUsers = useCallback(async () => {
     setLoading(true);
@@ -483,13 +482,13 @@ function UserManagementTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 function FileOversightTab() {
   const [activeView, setActiveView] = useState("all");
-  const [files,    setFiles]    = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState("");
-  const [page,     setPage]     = useState(1);
-  const [pages,    setPages]    = useState(1);
-  const [total,    setTotal]    = useState(0);
-  const [confirm,  setConfirm]  = useState(null);
+  const [files, setFiles] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [confirm, setConfirm] = useState(null);
 
   const fetchFiles = useCallback(async () => {
     setLoading(true);
@@ -530,10 +529,10 @@ function FileOversightTab() {
   };
 
   const VIEWS = [
-    { id: "all",      label: "All Files"       },
-    { id: "hogs",     label: "Storage Hogs"    },
-    { id: "orphaned", label: "Orphaned"        },
-    { id: "search",   label: "Full-Text Search" },
+    { id: "all", label: "All Files" },
+    { id: "hogs", label: "Storage Hogs" },
+    { id: "orphaned", label: "Orphaned" },
+    { id: "search", label: "Full-Text Search" },
   ];
 
   return (
@@ -543,9 +542,8 @@ function FileOversightTab() {
       <div className="flex flex-wrap items-center gap-2">
         {VIEWS.map((v) => (
           <button key={v.id} onClick={() => { setActiveView(v.id); setPage(1); }}
-            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${
-              activeView === v.id ? "bg-brand/15 border-brand/30 text-brand-glow" : "btn-ghost"
-            }`}>
+            className={`px-3 py-2 rounded-lg text-xs font-medium border transition-all ${activeView === v.id ? "bg-brand/15 border-brand/30 text-brand-glow" : "btn-ghost"
+              }`}>
             {v.label}
           </button>
         ))}
@@ -642,13 +640,13 @@ function FileOversightTab() {
 //  ANNOUNCEMENTS TAB
 // ─────────────────────────────────────────────────────────────────────────────
 function AnnouncementsTab() {
-  const [subject,    setSubject]    = useState("");
-  const [message,    setMessage]    = useState("");
-  const [sendEmail,  setSendEmail]  = useState(false);
+  const [subject, setSubject] = useState("");
+  const [message, setMessage] = useState("");
+  const [sendEmail, setSendEmail] = useState(false);
   const [targetRole, setTargetRole] = useState("");
-  const [loading,    setLoading]    = useState(false);
-  const [sent,       setSent]       = useState(false);
-  const [items,      setItems]      = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [items, setItems] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [removingId, setRemovingId] = useState("");
 
@@ -738,14 +736,12 @@ function AnnouncementsTab() {
               role="switch"
               aria-checked={!!sendEmail}
               onClick={() => setSendEmail((p) => !p)}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full border-2 border-transparent cursor-pointer transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${
-                sendEmail ? "bg-brand" : "bg-surface-4"
-              }`}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 items-center rounded-full border-2 border-transparent cursor-pointer transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/50 ${sendEmail ? "bg-brand" : "bg-surface-4"
+                }`}
             >
               <span
-                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${
-                  sendEmail ? "translate-x-4" : "translate-x-0"
-                }`}
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition-transform duration-200 ease-in-out ${sendEmail ? "translate-x-4" : "translate-x-0"
+                  }`}
               />
             </button>
           </div>
@@ -826,34 +822,34 @@ function AnnouncementsTab() {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const ACTION_META = {
-  login:              { label: "Login",           icon: "🔑", color: "text-emerald-400" },
-  logout:             { label: "Logout",          icon: "🚪", color: "text-gray-400" },
-  register:           { label: "Register",        icon: "🆕", color: "text-brand-glow" },
-  upload:             { label: "Upload",          icon: "⬆️",  color: "text-brand-glow" },
-  download:           { label: "Download",        icon: "⬇️",  color: "text-blue-400" },
-  delete:             { label: "Delete",          icon: "🗑️",  color: "text-accent-red" },
-  restore:            { label: "Restore",         icon: "♻️",  color: "text-amber-400" },
-  share:              { label: "Share",           icon: "🔗",  color: "text-purple-400" },
-  unshare:            { label: "Unshare",         icon: "🔒",  color: "text-gray-400" },
-  star:               { label: "Star",            icon: "⭐",  color: "text-amber-400" },
-  unstar:             { label: "Unstar",          icon: "☆",   color: "text-gray-400" },
-  rename:             { label: "Rename",          icon: "✏️",  color: "text-blue-400" },
-  bulk_delete:        { label: "Bulk Delete",     icon: "🗑️",  color: "text-accent-red" },
-  password_change:    { label: "Pwd Change",      icon: "🔐",  color: "text-amber-400" },
-  settings_update:    { label: "Settings",        icon: "⚙️",  color: "text-gray-400" },
-  profile_update:     { label: "Profile",         icon: "👤",  color: "text-blue-400" },
-  "2fa_enable":       { label: "2FA On",          icon: "🛡️",  color: "text-emerald-400" },
-  "2fa_disable":      { label: "2FA Off",         icon: "🛡️",  color: "text-accent-red" },
-  file_request_create:{ label: "File Req",        icon: "📋",  color: "text-brand-glow" },
-  file_request_submit:{ label: "Req Submit",      icon: "📩",  color: "text-purple-400" },
-  team_invite:        { label: "Team Invite",     icon: "👥",  color: "text-emerald-400" },
-  team_remove:        { label: "Team Remove",     icon: "👥",  color: "text-accent-red" },
+  login: { label: "Login", icon: "🔑", color: "text-emerald-400" },
+  logout: { label: "Logout", icon: "🚪", color: "text-gray-400" },
+  register: { label: "Register", icon: "🆕", color: "text-brand-glow" },
+  upload: { label: "Upload", icon: "⬆️", color: "text-brand-glow" },
+  download: { label: "Download", icon: "⬇️", color: "text-blue-400" },
+  delete: { label: "Delete", icon: "🗑️", color: "text-accent-red" },
+  restore: { label: "Restore", icon: "♻️", color: "text-amber-400" },
+  share: { label: "Share", icon: "🔗", color: "text-purple-400" },
+  unshare: { label: "Unshare", icon: "🔒", color: "text-gray-400" },
+  star: { label: "Star", icon: "⭐", color: "text-amber-400" },
+  unstar: { label: "Unstar", icon: "☆", color: "text-gray-400" },
+  rename: { label: "Rename", icon: "✏️", color: "text-blue-400" },
+  bulk_delete: { label: "Bulk Delete", icon: "🗑️", color: "text-accent-red" },
+  password_change: { label: "Pwd Change", icon: "🔐", color: "text-amber-400" },
+  settings_update: { label: "Settings", icon: "⚙️", color: "text-gray-400" },
+  profile_update: { label: "Profile", icon: "👤", color: "text-blue-400" },
+  "2fa_enable": { label: "2FA On", icon: "🛡️", color: "text-emerald-400" },
+  "2fa_disable": { label: "2FA Off", icon: "🛡️", color: "text-accent-red" },
+  file_request_create: { label: "File Req", icon: "📋", color: "text-brand-glow" },
+  file_request_submit: { label: "Req Submit", icon: "📩", color: "text-purple-400" },
+  team_invite: { label: "Team Invite", icon: "👥", color: "text-emerald-400" },
+  team_remove: { label: "Team Remove", icon: "👥", color: "text-accent-red" },
 };
 
 function ActivityRow({ activity }) {
   const meta = ACTION_META[activity.action] || { label: activity.action, icon: "📌", color: "text-gray-400" };
   const user = activity.user;
-  const det  = activity.details || {};
+  const det = activity.details || {};
 
   const detailStr = det.filename || det.originalName
     ? `${det.filename || det.originalName}${det.size ? ` (${formatBytes(det.size)})` : ""}`
@@ -900,29 +896,29 @@ function ActivityRow({ activity }) {
 }
 
 function SystemActivityTab() {
-  const [activities, setActivities]   = useState([]);
-  const [loading,    setLoading]      = useState(true);
-  const [page,       setPage]         = useState(1);
-  const [pages,      setPages]        = useState(1);
-  const [total,      setTotal]        = useState(0);
-  const [stats,      setStats]        = useState(null);
-  const [showStats,  setShowStats]    = useState(true);
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [stats, setStats] = useState(null);
+  const [showStats, setShowStats] = useState(true);
 
-  const [filterAction,   setFilterAction]   = useState("");
-  const [filterUser,     setFilterUser]     = useState("");
+  const [filterAction, setFilterAction] = useState("");
+  const [filterUser, setFilterUser] = useState("");
   const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo,   setFilterDateTo]   = useState("");
-  const [search,         setSearch]         = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [search, setSearch] = useState("");
 
   const fetchActivities = useCallback(async () => {
     setLoading(true);
     try {
       const params = { page, limit: 50 };
-      if (filterAction)   params.action   = filterAction;
-      if (filterUser)     params.userId   = filterUser;
+      if (filterAction) params.action = filterAction;
+      if (filterUser) params.userId = filterUser;
       if (filterDateFrom) params.dateFrom = filterDateFrom;
-      if (filterDateTo)   params.dateTo   = filterDateTo;
-      if (search)         params.search   = search;
+      if (filterDateTo) params.dateTo = filterDateTo;
+      if (search) params.search = search;
 
       const { data } = await api.get("/api/admin/activities", { params });
       setActivities(data.activities);
@@ -939,7 +935,7 @@ function SystemActivityTab() {
     try {
       const { data } = await api.get("/api/admin/activities/stats");
       setStats(data);
-    } catch {}
+    } catch { }
   }, []);
 
   useEffect(() => { fetchActivities(); }, [fetchActivities]);
@@ -1113,13 +1109,78 @@ function SystemActivityTab() {
 }
 
 const TABS = [
-  { id: "overview",     label: "Overview",        icon: BarChart3   },
-  { id: "users",        label: "Users",           icon: Users       },
-  { id: "files",        label: "Files",           icon: FileText    },
-  { id: "activity",     label: "Activity Log",    icon: Activity    },
-  { id: "announce",     label: "Announcements",   icon: Megaphone   },
-  { id: "branding",     label: "Branding",        icon: Palette     },
+  { id: "overview", label: "Overview", icon: BarChart3 },
+  { id: "users", label: "Users", icon: Users },
+  { id: "files", label: "Files", icon: FileText },
+  { id: "activity", label: "Activity Log", icon: Activity },
+  { id: "workflows", label: "Workflows", icon: Filter },
+  { id: "announce", label: "Announcements", icon: Megaphone },
+  { id: "branding", label: "Branding", icon: Palette },
 ];
+
+function WorkflowsTab() {
+  const templates = [
+    {
+      name: "Retention: Delete after 30 days",
+      description: "Marks files older than 30 days as deleted.",
+      trigger: { type: "time", scheduleType: "daily", scheduleTime: "02:00" },
+      actions: [{ type: "delete", label: "Retention Delete", params: { retentionDays: 30 } }],
+    },
+    {
+      name: "Backup on upload (local)",
+      description: "Backs up newly uploaded files to server backups folder.",
+      trigger: { type: "file_event", event: "upload" },
+      actions: [{ type: "backup", label: "Local Backup", params: {} }],
+    },
+    {
+      name: "Weekly report",
+      description: "Generates a weekly summary report.",
+      trigger: { type: "time", scheduleType: "weekly", scheduleTime: "03:00", daysOfWeek: ["mon"] },
+      actions: [{ type: "report", label: "Weekly Report", params: {} }],
+    },
+    {
+      name: "Require approval before delete",
+      description: "Defers delete actions until an admin approves.",
+      trigger: { type: "file_event", event: "delete" },
+      approval: { required: true },
+      actions: [{ type: "delete", label: "Delete after approval", params: {} }],
+    },
+  ];
+
+  const applyTemplate = async (t) => {
+    try {
+      const payload = { ...t };
+      await api.post("/api/workflows", payload);
+      toast.success("Template applied: " + t.name);
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to apply template");
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold text-white">Workflows</h3>
+        <a href="/admin/workflows" className="btn-primary px-3 py-1">Open Workflow Builder</a>
+      </div>
+      <div className="grid gap-3 grid-cols-1 md:grid-cols-2">
+        {templates.map((t) => (
+          <div key={t.name} className="card p-4">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="font-medium text-white">{t.name}</p>
+                <p className="text-sm text-gray-500 mt-1">{t.description}</p>
+              </div>
+              <div className="flex flex-col gap-2">
+                <button onClick={() => applyTemplate(t)} className="btn-ghost">Apply</button>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export default function AdminPage() {
   const [activeTab, setTab] = useState("overview");
@@ -1141,11 +1202,10 @@ export default function AdminPage() {
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${
-              activeTab === id
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap ${activeTab === id
                 ? "bg-surface-1 text-white shadow-sm border border-surface-4"
                 : "text-gray-500 hover:text-gray-300"
-            }`}
+              }`}
           >
             <Icon size={14} />
             {label}
@@ -1154,12 +1214,12 @@ export default function AdminPage() {
       </div>
 
       <div className="animate-fade-up">
-        {activeTab === "overview"  && <OverviewTab />}
-        {activeTab === "users"     && <UserManagementTab />}
-        {activeTab === "files"     && <FileOversightTab />}
-        {activeTab === "activity"  && <SystemActivityTab />}
-        {activeTab === "announce"  && <AnnouncementsTab />}
-        {activeTab === "branding"  && <AdminBrandingEditor />}
+        {activeTab === "overview" && <OverviewTab />}
+        {activeTab === "users" && <UserManagementTab />}
+        {activeTab === "files" && <FileOversightTab />}
+        {activeTab === "activity" && <SystemActivityTab />}
+        {activeTab === "announce" && <AnnouncementsTab />}
+        {activeTab === "branding" && <AdminBrandingEditor />}
       </div>
     </div>
   );

@@ -17,6 +17,7 @@ const File = require("../models/File");
 const User = require("../models/User");
 const { sendMail, emails } = require("../utils/sendMail");
 const { logActivity } = require("../utils/activityLogger");
+const { dispatchEvent } = require("../utils/workflowEngine");
 
 // ✅ Added for download notifications and webhooks
 const { sendDownloadNotification } = require("./notificationController");
@@ -185,6 +186,11 @@ const uploadFiles = async (req, res, next) => {
       triggerWebhook(req.user.id, "file.uploaded", {
         files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size })),
       }).catch(() => { });
+
+      // Fire workflow events for each uploaded file
+      for (const file of uploaded) {
+        dispatchEvent({ type: "upload", userId: req.user.id, file }).catch(() => { });
+      }
     }
 
     return res.status(201).json({
@@ -328,6 +334,7 @@ const updateFile = async (req, res, next) => {
         : tags.split(",").map((t) => t.trim()).filter(Boolean);
     }
     await file.save();
+    dispatchEvent({ type: "metadata_update", userId: req.user.id, file }).catch(() => { });
     return res.json({ success: true, file });
   } catch (err) { next(err); }
 };
@@ -355,6 +362,8 @@ const deleteFile = async (req, res, next) => {
       fileId: file._id,
       fileName: file.originalName,
     }).catch(() => { });
+
+    dispatchEvent({ type: "delete", userId: req.user.id, file }).catch(() => { });
 
     return res.json({ success: true, message: "File moved to trash." });
   } catch (err) { next(err); }
@@ -1064,6 +1073,8 @@ const uploadFromUrl = async (req, res, next) => {
     triggerWebhook(req.user.id, "file.uploaded", {
       files: [{ id: fileDoc._id, name: fileDoc.originalName, size: fileDoc.size }],
     }).catch(() => { });
+
+    dispatchEvent({ type: "upload", userId: req.user.id, file: fileDoc }).catch(() => { });
 
     return res.status(201).json({ success: true, file: fileDoc, message: `"${safeName}" imported successfully.` });
   } catch (err) { next(err); }

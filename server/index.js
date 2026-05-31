@@ -16,6 +16,7 @@ const morgan = require("morgan");
 const compression = require("compression");
 const mongoose = require("mongoose");
 const { Server } = require("socket.io");
+const { startEngine: startWorkflowEngine } = require("./utils/workflowEngine");
 const { setIO } = require("./utils/socket");
 
 // ── Passport OAuth configuration ─────────────────────────────────────────────
@@ -84,6 +85,7 @@ app.use("/api/files", require("./routes/files"));
 app.use("/api/ai", require("./routes/ai"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/admin", require("./routes/admin"));
+app.use("/api/workflows", require("./routes/workflows"));
 app.use("/api/announcements", require("./routes/announcements"));
 app.use("/api/webhooks", require("./routes/webhooks"));
 app.use("/api/branding", require("./routes/branding"));
@@ -121,6 +123,7 @@ mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB connected");
+    startWorkflowEngine();
     server.listen(PORT, () => {
       console.log(`🚀 VaultFS server running on http://localhost:${PORT}`);
     });

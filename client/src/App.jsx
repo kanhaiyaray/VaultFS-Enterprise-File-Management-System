@@ -1,29 +1,30 @@
 import { useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext";
-import { ThemeProvider }         from "./context/ThemeContext";
+import { ThemeProvider } from "./context/ThemeContext";
 import { ActionHistoryProvider } from "./context/ActionHistoryContext";
-import { BrandingProvider }      from "./components/BrandingProvider";
-import AppToaster                from "./components/AppToaster";
-import LoginPage          from "./pages/LoginPage";
-import AdminLoginPage     from "./pages/AdminLoginPage";
-import RegisterPage       from "./pages/RegisterPage";
-import DashboardPage      from "./pages/DashboardPage";
-import UploadPage         from "./pages/UploadPage";
-import AnalyticsPage      from "./pages/AnalyticsPage";
-import GalleryPage        from "./pages/GalleryPage";
-import TeamPage           from "./pages/TeamPage";
-import SettingsPage       from "./pages/SettingsPage";
-import AdminPage          from "./pages/AdminPage";
-import StarredPage        from "./pages/StarredPage";
-import TrashPage          from "./pages/TrashPage";
-import FileRequestsPage   from "./pages/FileRequestsPage";
-import FileRequestSubmit  from "./pages/FileRequestSubmit";
+import { BrandingProvider } from "./components/BrandingProvider";
+import AppToaster from "./components/AppToaster";
+import LoginPage from "./pages/LoginPage";
+import AdminLoginPage from "./pages/AdminLoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import DashboardPage from "./pages/DashboardPage";
+import UploadPage from "./pages/UploadPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
+import GalleryPage from "./pages/GalleryPage";
+import TeamPage from "./pages/TeamPage";
+import SettingsPage from "./pages/SettingsPage";
+import AdminPage from "./pages/AdminPage";
+import WorkflowBuilder from "./pages/WorkflowBuilder";
+import StarredPage from "./pages/StarredPage";
+import TrashPage from "./pages/TrashPage";
+import FileRequestsPage from "./pages/FileRequestsPage";
+import FileRequestSubmit from "./pages/FileRequestSubmit";
 import ForgotPasswordPage from "./pages/ForgotPasswordPage";
-import ResetPasswordPage  from "./pages/ResetPasswordPage";
-import VerifyEmailPage    from "./pages/VerifyEmailPage";
-import PublicSharePage    from "./pages/PublicSharePage";
-import Layout             from "./components/Layout";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
+import PublicSharePage from "./pages/PublicSharePage";
+import Layout from "./components/Layout";
 
 
 const Spinner = () => (
@@ -35,7 +36,7 @@ const Spinner = () => (
 const ProtectedRoute = ({ children, adminOnly = false }) => {
   const { user, loading } = useAuth();
   if (loading) return <Spinner />;
-  if (!user)   return <Navigate to="/login" replace />;
+  if (!user) return <Navigate to="/login" replace />;
   if (adminOnly && user.role !== "admin") return <Navigate to="/dashboard" replace />;
   return children;
 };
@@ -56,7 +57,7 @@ const PublicRoute = ({ children, adminPortal = false }) => {
 const OAuthCallback = () => {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const token  = params.get("token");
+    const token = params.get("token");
     if (token) {
       localStorage.setItem("token", token);
       window.location.href = "/dashboard";
@@ -70,24 +71,24 @@ const OAuthCallback = () => {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/"               element={<Navigate to="/dashboard" replace />} />
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
 
       {/* ── Auth (public) ────────────────────────────────────────────── */}
-      <Route path="/login"            element={<PublicRoute><LoginPage /></PublicRoute>} />
-      <Route path="/admin/login"      element={<PublicRoute adminPortal><AdminLoginPage /></PublicRoute>} />
-      <Route path="/register"         element={<PublicRoute><RegisterPage /></PublicRoute>} />
-      <Route path="/forgot-password"  element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
-      <Route path="/reset-password"   element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
+      <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
+      <Route path="/admin/login" element={<PublicRoute adminPortal><AdminLoginPage /></PublicRoute>} />
+      <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+      <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+      <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
 
       {/* Email verify — accessible even when logged in */}
-      <Route path="/verify-email"     element={<VerifyEmailPage />} />
+      <Route path="/verify-email" element={<VerifyEmailPage />} />
 
-      <Route path="/oauth-callback"   element={<OAuthCallback />} />
+      <Route path="/oauth-callback" element={<OAuthCallback />} />
 
       {/* ── Public routes ────────────────────────────────────────────── */}
-      <Route path="/r/:slug"  element={<FileRequestSubmit />} />
+      <Route path="/r/:slug" element={<FileRequestSubmit />} />
       <Route path="/s/:token" element={<PublicSharePage />} />
-      <Route path="/gallery"  element={<Layout><GalleryPage /></Layout>} />
+      <Route path="/gallery" element={<Layout><GalleryPage /></Layout>} />
 
       {/* ── Protected routes ─────────────────────────────────────────── */}
       <Route path="/dashboard"
@@ -110,6 +111,9 @@ function AppRoutes() {
       {/* ── Admin only ───────────────────────────────────────────────── */}
       <Route path="/admin"
         element={<ProtectedRoute adminOnly><Layout><AdminPage /></Layout></ProtectedRoute>} />
+
+      <Route path="/admin/workflows"
+        element={<ProtectedRoute adminOnly><Layout><WorkflowBuilder /></Layout></ProtectedRoute>} />
 
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
