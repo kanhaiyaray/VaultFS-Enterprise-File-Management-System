@@ -10,6 +10,7 @@ import { useTheme } from "../context/ThemeContext";
 import toast from "react-hot-toast";
 import EmailVerificationBanner from "../components/EmailVerificationBanner";
 import WebhooksTab              from "../components/WebhooksTab";
+import DeviceManagement from "../components/DeviceManagement";
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 function Section({ title, description, children }) {
@@ -350,6 +351,11 @@ function SecurityTab({ user }) {
           </button>
         </div>
       </Section>
+
+      {/* Device Management - Added after Sessions section */}
+      <div className="mt-6">
+        <DeviceManagement />
+      </div>
     </div>
   );
 }

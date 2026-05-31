@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, Github, Chrome, Shield } from "lucide-react";
+import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, Github, Chrome, Shield, AlertTriangle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
 import toast from "react-hot-toast";
+import { getDeviceFingerprint, getDeviceInfo } from "../utils/deviceFingerprint";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -21,17 +22,34 @@ export default function LoginPage() {
   const [twoFAToken,  setTwoFAToken]  = useState("");
   const [pendingData, setPendingData] = useState(null);
 
+  // Suspicious login state
+  const [showSuspiciousModal, setShowSuspiciousModal] = useState(false);
+  const [suspiciousReasons, setSuspiciousReasons] = useState([]);
+  const [suspiciousToken, setSuspiciousToken] = useState("");
+
   const oauthError = params.get("error");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+    
     try {
-      const data = await login(email, password);
+      // Get device fingerprint and info for security
+      const fingerprint = await getDeviceFingerprint();
+      const deviceInfo = getDeviceInfo();
+      
+      // Call login with fingerprint data
+      const data = await login(email, password, fingerprint, deviceInfo);
+      
       if (data.requires2FA) {
         setPendingData(data);
         setRequires2FA(true);
+      } else if (data.requiresVerification) {
+        // Handle suspicious login
+        setSuspiciousReasons(data.reasons || ["Suspicious activity detected"]);
+        setSuspiciousToken(data.suspiciousToken);
+        setShowSuspiciousModal(true);
       } else {
         toast.success(`Welcome back, ${data.user?.displayName || data.user?.username}!`);
         // Admin users logging in via user portal → redirect to dashboard (they can navigate to /admin)
@@ -55,9 +73,30 @@ export default function LoginPage() {
         token:  twoFAToken,
       });
       localStorage.setItem("token", data.token);
+      toast.success("2FA verified successfully!");
       window.location.href = "/dashboard";
     } catch (err) {
       setError(err.response?.data?.message || "Invalid 2FA code.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerifySuspicious = async () => {
+    setLoading(true);
+    try {
+      // Send verification request
+      const { data } = await api.post("/api/auth/verify-suspicious", {
+        token: suspiciousToken,
+        confirm: true
+      });
+      
+      localStorage.setItem("token", data.token);
+      toast.success("Device verified! You can now access your account.");
+      window.location.href = "/dashboard";
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Verification failed. Please try again.");
+      setShowSuspiciousModal(false);
     } finally {
       setLoading(false);
     }
@@ -237,6 +276,60 @@ export default function LoginPage() {
           )}
         </div>
       </div>
+
+      {/* Suspicious Login Modal */}
+      {showSuspiciousModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-surface-1 border border-amber-900/40 rounded-2xl max-w-md w-full shadow-2xl animate-fade-up">
+            <div className="flex items-center gap-3 p-5 border-b border-surface-3">
+              <div className="w-10 h-10 rounded-xl bg-amber-900/20 border border-amber-900/30 flex items-center justify-center">
+                <AlertTriangle size={20} className="text-accent-amber" />
+              </div>
+              <div>
+                <h3 className="font-display font-bold text-white text-lg">Suspicious Login Detected</h3>
+                <p className="text-xs text-gray-500">We noticed unusual activity</p>
+              </div>
+            </div>
+            
+            <div className="p-5 space-y-4">
+              <p className="text-sm text-gray-300">
+                We detected the following security concerns:
+              </p>
+              <ul className="space-y-2">
+                {suspiciousReasons.map((reason, idx) => (
+                  <li key={idx} className="flex items-center gap-2 text-sm text-amber-400">
+                    <Shield size={14} />
+                    {reason}
+                  </li>
+                ))}
+              </ul>
+              <div className="p-3 bg-amber-900/10 border border-amber-900/20 rounded-lg">
+                <p className="text-xs text-amber-300/80 leading-relaxed">
+                  For your security, we've blocked this login attempt. 
+                  If this was you, please verify your identity below. 
+                  A verification email has been sent to your registered email address.
+                </p>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button 
+                  onClick={() => setShowSuspiciousModal(false)} 
+                  className="btn-ghost flex-1"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={handleVerifySuspicious} 
+                  disabled={loading}
+                  className="btn-primary flex-1 justify-center"
+                >
+                  {loading ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+                  {loading ? "Verifying..." : "Verify & Continue"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

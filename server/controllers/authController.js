@@ -3,11 +3,14 @@
  * VaultFS — Full authentication controller.
  * Handles: register, login, me, OAuth callbacks, 2FA setup/verify/disable,
  *          forgot-password, reset-password, email verification.
+ *          PLUS: Device fingerprinting & suspicious login detection
  */
 
+const Device = require('../models/Device');
+const UAParser = require('ua-parser-js');
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");                     // ✅ ADDED
+const crypto = require("crypto");                     
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 
@@ -30,6 +33,115 @@ const sanitizeUser = (user) => {
   return obj;
 };
 
+// ── Detect suspicious login ───────────────────────────────────────────────────
+const detectSuspiciousLogin = async (user, fingerprint, deviceInfo, ipAddress) => {
+  const existingDevices = await Device.find({ user: user._id });
+  const knownDevice = existingDevices.find(d => d.fingerprint === fingerprint);
+  
+  if (knownDevice && knownDevice.isTrusted) {
+    knownDevice.lastSeenAt = new Date();
+    knownDevice.loginCount += 1;
+    knownDevice.ipAddress = ipAddress;
+    await knownDevice.save();
+    return { isSuspicious: false };
+  }
+  
+  let suspicionScore = 0;
+  let reasons = [];
+  
+  if (!knownDevice) {
+    suspicionScore += 40;
+    reasons.push('New device detected');
+  } else if (!knownDevice.isTrusted) {
+    suspicionScore += 20;
+    reasons.push('Untrusted device');
+  }
+  
+  const parser = new UAParser(deviceInfo?.userAgent);
+  const os = parser.getOS();
+  
+  if (existingDevices.length > 0) {
+    const lastDevice = existingDevices[0];
+    if (lastDevice.timezone && deviceInfo?.timezone !== lastDevice.timezone) {
+      suspicionScore += 15;
+      reasons.push('Timezone changed significantly');
+    }
+    if (lastDevice.platform && deviceInfo?.platform !== lastDevice.platform) {
+      suspicionScore += 10;
+      reasons.push('Different operating system');
+    }
+  }
+  
+  const recentLogins = existingDevices.filter(d => 
+    d.lastSeenAt > new Date(Date.now() - 5 * 60 * 1000)
+  ).length;
+  if (recentLogins > 3) {
+    suspicionScore += 20;
+    reasons.push('Multiple logins in short period');
+  }
+  
+  const isSuspicious = suspicionScore >= 50;
+  
+  if (knownDevice) {
+    knownDevice.lastSeenAt = new Date();
+    knownDevice.loginCount += 1;
+    knownDevice.ipAddress = ipAddress;
+    knownDevice.isSuspicious = isSuspicious;
+    knownDevice.suspicionReason = isSuspicious ? reasons.join('; ') : null;
+    await knownDevice.save();
+  } else {
+    await Device.create({
+      user: user._id,
+      fingerprint,
+      userAgent: deviceInfo?.userAgent,
+      platform: deviceInfo?.platform || os.name,
+      language: deviceInfo?.language,
+      screenResolution: deviceInfo?.screenResolution,
+      timezone: deviceInfo?.timezone,
+      hardwareConcurrency: deviceInfo?.hardwareConcurrency,
+      deviceMemory: deviceInfo?.deviceMemory,
+      touchSupport: deviceInfo?.touchSupport,
+      ipAddress,
+      loginCount: 1,
+      isSuspicious,
+      suspicionReason: isSuspicious ? reasons.join('; ') : null,
+    });
+  }
+  
+  return { isSuspicious, reasons, suspicionScore };
+};
+
+// ── Send suspicious login email ───────────────────────────────────────────────
+const sendSuspiciousLoginEmail = async (user, reasons, ipAddress, deviceInfo) => {
+  const reasonsHtml = reasons.map(r => `<li style="margin: 5px 0">${r}</li>`).join('');
+  
+  await sendMail({
+    to: user.email,
+    subject: '⚠️ Suspicious login detected on your VaultFS account',
+    html: `
+      <div style="font-family: sans-serif; max-width: 520px; margin: 0 auto; padding: 32px; background: #0f0f13; border-radius: 12px; border: 1px solid #2a2a3d;">
+        <h2 style="color: #f59e0b; margin-top: 0;">Suspicious Login Alert</h2>
+        <p>Hi <strong>${user.displayName || user.username}</strong>,</p>
+        <p>We detected a login to your VaultFS account that looks unusual:</p>
+        <ul style="background: #1a1a27; padding: 16px 24px; border-radius: 8px;">${reasonsHtml}</ul>
+        <div style="background: #1a1a27; padding: 12px 16px; border-radius: 8px; margin: 16px 0;">
+          <p style="margin: 0 0 8px"><strong>Device details:</strong></p>
+          <p style="margin: 0; color: #a1a1aa; font-size: 12px;">${deviceInfo?.userAgent || 'Unknown'}</p>
+          <p style="margin: 8px 0 0; color: #a1a1aa; font-size: 12px;">IP: ${ipAddress}</p>
+        </div>
+        <p style="margin: 16px 0;">If this was you, you can verify this device in your security settings.</p>
+        <a href="${process.env.CLIENT_URL}/settings?tab=security" 
+           style="display: inline-block; margin: 8px 0; padding: 10px 20px; background: #6366f1; color: white; text-decoration: none; border-radius: 6px;">
+          Review Security Settings
+        </a>
+        <p style="color: #71717a; font-size: 12px; margin-top: 24px;">
+          If you didn't attempt this login, please change your password immediately.
+        </p>
+      </div>
+    `
+  });
+};
+
 // ── POST /api/auth/register ───────────────────────────────────────────────────
 const register = async (req, res, next) => {
   try {
@@ -50,18 +162,17 @@ const register = async (req, res, next) => {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const hashedTok = crypto.createHash("sha256").update(rawToken).digest("hex");
 
-    // ✅ FIXED: Added emailVerifyExpires (24 hours)
     const user = await User.create({
       username: username.trim(),
       email: email.toLowerCase().trim(),
       password,
       displayName: displayName?.trim() || username.trim(),
       emailVerifyToken: hashedTok,
-      emailVerifyExpires: new Date(Date.now() + 24 * 60 * 60 * 1000), // 24h expiry
+      emailVerifyExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
       emailVerified: false,
     });
 
-    // Send verification email (non-blocking)
+    // Send verification email
     try {
       const verifyUrl = `${process.env.CLIENT_URL}/verify-email?token=${rawToken}&id=${user._id}`;
       const mail = emails.verifyEmail(user.displayName || user.username, verifyUrl);
@@ -80,36 +191,67 @@ const register = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── POST /api/auth/login ──────────────────────────────────────────────────────
+// ── POST /api/auth/login (ENHANCED with device fingerprinting) ────────────────
 const login = async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password)
+    const { email, password, fingerprint, deviceInfo } = req.body;
+    
+    if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email and password are required." });
-
+    }
+    
     const user = await User.findOne({ email: email.toLowerCase() }).select("+password +twoFactorSecret");
-    if (!user || !user.password)
+    if (!user || !user.password) {
       return res.status(401).json({ success: false, message: "Invalid email or password." });
-
+    }
+    
     const match = await user.comparePassword(password);
-    if (!match)
+    if (!match) {
       return res.status(401).json({ success: false, message: "Invalid email or password." });
-
-    if (user.isBanned)
+    }
+    
+    if (user.isBanned) {
       return res.status(403).json({ success: false, message: user.banReason || "Account suspended." });
-
+    }
+    
+    const ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+    const suspicion = await detectSuspiciousLogin(user, fingerprint, deviceInfo, ipAddress);
+    
+    // If suspicious, require verification
+    if (suspicion.isSuspicious) {
+      // IMPORTANT: Include fingerprint in the token for device identification
+      const suspiciousToken = jwt.sign(
+        { 
+          id: user._id, 
+          reason: suspicion.reasons,
+          fingerprint: fingerprint  // ✅ ADDED: Include fingerprint for device verification
+        },
+        process.env.JWT_SECRET,
+        { expiresIn: "30m" }
+      );
+      
+      await sendSuspiciousLoginEmail(user, suspicion.reasons, ipAddress, deviceInfo);
+      
+      return res.status(403).json({
+        success: false,
+        requiresVerification: true,
+        suspiciousToken,
+        message: "Suspicious login detected. Check your email for verification.",
+        reasons: suspicion.reasons
+      });
+    }
+    
     // 2FA check
     if (user.twoFactorEnabled) {
       const tempToken = jwt.sign({ id: user._id, pending2FA: true }, process.env.JWT_SECRET, { expiresIn: "10m" });
       return res.json({ success: true, requires2FA: true, userId: user._id, tempToken });
     }
-
-    // Update last login
+    
     user.lastLoginAt = new Date();
     user.lastLoginIp = req.ip;
     await user.save();
     logActivity(req, user._id, "login", { email: user.email });
-
+    
     const token = signToken(user._id);
     return res.json({ success: true, token, user: sanitizeUser(user) });
   } catch (err) { next(err); }
@@ -225,7 +367,7 @@ const forgotPassword = async (req, res, next) => {
     await PasswordReset.create({
       userId: user._id,
       token: hashedTok,
-      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000), // 2 hours
+      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
     });
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}&id=${user._id}`;
@@ -332,7 +474,7 @@ const resendVerification = async (req, res, next) => {
     const rawToken = crypto.randomBytes(32).toString("hex");
     const hashedTok = crypto.createHash("sha256").update(rawToken).digest("hex");
     user.emailVerifyToken = hashedTok;
-    user.emailVerifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+    user.emailVerifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
     await user.save();
 
     const verifyUrl = `${process.env.CLIENT_URL}/verify-email?token=${rawToken}&id=${user._id}`;

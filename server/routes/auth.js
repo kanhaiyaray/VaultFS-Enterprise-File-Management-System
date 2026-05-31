@@ -41,6 +41,43 @@ router.post("/2fa/verify", protect, verify2FA);
 router.post("/2fa/verify-login", verify2FALogin);
 router.post("/2fa/disable", protect, disable2FA);
 
+// ── Suspicious login verification ────────────────────────────────────────────
+router.post("/verify-suspicious", async (req, res, next) => {
+  try {
+    const { token, confirm } = req.body;
+    if (!token || !confirm) {
+      return res.status(400).json({ success: false, message: "Invalid verification request." });
+    }
+    
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const User = require("../models/User");
+    const user = await User.findById(decoded.id);
+    
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
+    
+    // Mark the device as trusted
+    const Device = require("../models/Device");
+    const device = await Device.findOne({ user: user._id, fingerprint: decoded.fingerprint });
+    if (device) {
+      device.isTrusted = true;
+      device.isSuspicious = false;
+      device.suspicionReason = null;
+      await device.save();
+    }
+    
+    const authToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+    res.json({ success: true, token: authToken, message: "Device verified successfully." });
+  } catch (err) {
+    if (err.name === "JsonWebTokenError") {
+      return res.status(401).json({ success: false, message: "Invalid or expired verification token." });
+    }
+    next(err);
+  }
+});
+
+// ── OAuth configuration flags ────────────────────────────────────────────────
 const googleEnabled = !!process.env.GOOGLE_CLIENT_ID && !!process.env.GOOGLE_CLIENT_SECRET;
 const githubEnabled = !!process.env.GITHUB_CLIENT_ID && !!process.env.GITHUB_CLIENT_SECRET;
 

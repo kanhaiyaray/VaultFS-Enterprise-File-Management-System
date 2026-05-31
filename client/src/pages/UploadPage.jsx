@@ -14,11 +14,14 @@ import {
   UploadCloud,
   X,
   Zap,
+  Shield,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { formatBytes, getFileIcon } from "../utils/helpers";
+import EncryptionModal from "../components/EncryptionModal";
+import { generateFileKey, encryptFile } from "../utils/encryption";
 
 const MAX_SIZE = 50 * 1024 * 1024;
 const ALLOWED_TYPES = [
@@ -123,7 +126,7 @@ function UrlUploadTab({ onUploadComplete }) {
   return (
     <div className="space-y-4">
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+        <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
           <Link2 size={11} /> File URL *
         </label>
         <div className="flex gap-2">
@@ -149,13 +152,13 @@ function UrlUploadTab({ onUploadComplete }) {
 
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
             <FileText size={11} /> Filename Override
           </label>
           <input type="text" placeholder="my-document.pdf" className="input" value={filename} onChange={(event) => setFilename(event.target.value)} />
         </div>
         <div>
-          <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
             <Tag size={11} /> Tags <span className="text-gray-600">(comma separated)</span>
           </label>
           <input type="text" placeholder="design, reference" className="input" value={tags} onChange={(event) => setTags(event.target.value)} />
@@ -163,7 +166,7 @@ function UrlUploadTab({ onUploadComplete }) {
       </div>
 
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1.5">Description</label>
+        <label className="text-xs font-medium text-gray-400 mb-1.5">Description</label>
         <input type="text" placeholder="Optional description..." className="input" value={description} onChange={(event) => setDescription(event.target.value)} />
       </div>
 
@@ -208,6 +211,7 @@ export default function UploadPage() {
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
   const [rateLimitHit, setRateLimitHit] = useState(false);
+  const [showEncryptionModal, setShowEncryptionModal] = useState(false);
   const folderInputRef = useRef(null);
 
   useEffect(() => {
@@ -251,6 +255,7 @@ export default function UploadPage() {
   const removeFile = (id) => setFiles((prev) => prev.filter((file) => file.id !== id));
   const clearAll = () => setFiles([]);
 
+  // Regular upload handler
   const handleUpload = async () => {
     const pending = files.filter((file) => file.status === "pending");
     if (!pending.length) {
@@ -315,6 +320,51 @@ export default function UploadPage() {
 
     setUploading(false);
     refreshUser();
+  };
+
+  // Encrypted upload handler
+  const handleEncryptedUpload = async (password) => {
+    const pending = files.filter(f => f.status === "pending");
+    if (!pending.length) {
+      toast.error("No files to upload.");
+      return;
+    }
+    
+    setUploading(true);
+    
+    for (const item of pending) {
+      try {
+        const { key, iv } = generateFileKey();
+        
+        setFiles(prev => prev.map(f => 
+          f.id === item.id ? { ...f, status: "uploading", progress: 10 } : f
+        ));
+        
+        const encryptedBlob = await encryptFile(item.file, key, iv);
+        const formData = new FormData();
+        formData.append("files", encryptedBlob, `${item.file.name}.encrypted`);
+        formData.append("originalName", item.file.name);
+        formData.append("encryptionIV", iv);
+        formData.append("encryptionKeyEncrypted", key);
+        formData.append("isEncrypted", "true");
+        if (tags) formData.append("tags", tags);
+        if (description) formData.append("description", description);
+        
+        await api.post("/api/files/upload-encrypted", formData);
+        
+        setFiles(prev => prev.map(f => 
+          f.id === item.id ? { ...f, status: "success", message: "Encrypted & uploaded" } : f
+        ));
+      } catch (err) {
+        setFiles(prev => prev.map(f => 
+          f.id === item.id ? { ...f, status: "error", message: err.response?.data?.message || err.message } : f
+        ));
+      }
+    }
+    
+    setUploading(false);
+    refreshUser();
+    toast.success("Encrypted files uploaded successfully!");
   };
 
   const pendingCount = files.filter((file) => file.status === "pending").length;
@@ -398,13 +448,13 @@ export default function UploadPage() {
 
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+              <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
                 <Tag size={11} /> Tags <span className="text-gray-600">(comma separated)</span>
               </label>
               <input type="text" className="input" placeholder="project, invoice, 2024" value={tags} onChange={(event) => setTags(event.target.value)} />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
+              <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
                 <FileText size={11} /> Description
               </label>
               <input type="text" className="input" placeholder="Optional description" value={description} onChange={(event) => setDescription(event.target.value)} />
@@ -428,10 +478,20 @@ export default function UploadPage() {
           )}
 
           {pendingCount > 0 && (
-            <button onClick={handleUpload} disabled={uploading} className="btn-primary w-full justify-center text-base py-3 animate-fade-up">
-              {uploading ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
-              {uploading ? "Uploading..." : `Upload ${pendingCount} file${pendingCount > 1 ? "s" : ""}`}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={handleUpload} disabled={uploading} className="btn-primary flex-1 justify-center text-base py-3 animate-fade-up">
+                {uploading ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
+                {uploading ? "Uploading..." : `Upload ${pendingCount} file${pendingCount > 1 ? "s" : ""}`}
+              </button>
+              
+              <button
+                onClick={() => setShowEncryptionModal(true)}
+                disabled={uploading}
+                className="flex items-center gap-1.5 px-4 py-3 rounded-lg text-sm bg-brand/10 border border-brand/20 text-brand-glow hover:bg-brand/20 transition-all"
+              >
+                <Shield size={16} /> Encrypt Files
+              </button>
+            </div>
           )}
 
           <div className="card p-3 flex items-start gap-2">
@@ -448,6 +508,13 @@ export default function UploadPage() {
         <div className="animate-fade-up">
           <UrlUploadTab onUploadComplete={refreshUser} />
         </div>
+      )}
+
+      {showEncryptionModal && (
+        <EncryptionModal
+          onConfirm={handleEncryptedUpload}
+          onClose={() => setShowEncryptionModal(false)}
+        />
       )}
     </div>
   );

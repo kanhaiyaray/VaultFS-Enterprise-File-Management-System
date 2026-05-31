@@ -203,6 +203,95 @@ const uploadFiles = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+//  UPLOAD ENCRYPTED FILES (E2EE)
+// ─────────────────────────────────────────────────────────────────────────────
+const uploadEncryptedFiles = async (req, res, next) => {
+  try {
+    const io = req.app.locals.io;
+    if (!req.files?.length) {
+      return res.status(400).json({ success: false, message: "No files uploaded." });
+    }
+
+    const user = await User.findById(req.user.id);
+    const tags = req.body.tags ? req.body.tags.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    const description = req.body.description || "";
+    const isEncrypted = req.body.isEncrypted === "true";
+    const encryptionIV = req.body.encryptionIV;
+    const originalNames = req.body.originalNames ? JSON.parse(req.body.originalNames) : [];
+
+    const uploaded = [];
+    const skipped = [];
+
+    for (let i = 0; i < req.files.length; i++) {
+      const f = req.files[i];
+      const originalName = originalNames[i] || f.originalname.replace(/\.encrypted$/, "");
+
+      // Storage quota check
+      if (user.storageUsed + f.size > user.storageLimit) {
+        fs.unlinkSync(f.path);
+        skipped.push({ originalName, reason: "Storage quota exceeded." });
+        continue;
+      }
+
+      const fileHash = hashFile(f.path);
+
+      // Check for duplicate
+      const existingOwn = await File.findOne({ hash: fileHash, owner: req.user.id, isDeleted: false });
+      if (existingOwn) {
+        fs.unlinkSync(f.path);
+        skipped.push({ originalName, reason: "Duplicate", existingFile: existingOwn });
+        continue;
+      }
+
+      // Create file document with encryption metadata
+      const fileDoc = await File.create({
+        filename: f.filename,
+        originalName: originalName,
+        mimetype: f.mimetype,
+        size: f.size,
+        path: f.path.replace(/\\/g, "/"),
+        url: `/uploads/${req.user.id}/${f.filename}`,
+        owner: req.user.id,
+        hash: fileHash,
+        tags,
+        description,
+        isEncrypted: isEncrypted,
+        encryptionIV: encryptionIV,
+        scanStatus: "pending",
+        starredBy: [],
+      });
+
+      await User.findByIdAndUpdate(req.user.id, {
+        $inc: { storageUsed: f.size, uploadCount: 1 },
+      });
+      user.storageUsed += f.size;
+
+      await logAccess(fileDoc._id, req.user.id, "upload", req);
+      logActivity(req, req.user.id, "upload", { filename: originalName, size: f.size, mimetype: f.mimetype, encrypted: isEncrypted });
+      uploaded.push(fileDoc);
+    }
+
+    emitActivity(req.user.id, "upload", { count: uploaded.length, files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size })) }, io);
+
+    // Fire webhook for each upload
+    if (uploaded.length) {
+      triggerWebhook(req.user.id, "file.uploaded", {
+        files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size, encrypted: true })),
+      }).catch(() => { });
+    }
+
+    return res.status(201).json({
+      success: true,
+      files: uploaded,
+      skipped,
+      message: `${uploaded.length} encrypted file(s) uploaded.`,
+    });
+  } catch (err) { 
+    next(err); 
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
 //  LIST FILES
 // ─────────────────────────────────────────────────────────────────────────────
 const getFiles = async (req, res, next) => {
@@ -496,7 +585,6 @@ const downloadFile = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 //  SIGNED URL (for secure preview / download links)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1107,11 +1195,37 @@ const createShareLink = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  MODULE EXPORTS
+// ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
-  uploadFiles, getFiles, getStats, getFile, unlockFile, getSignedUrl,
-  downloadFile, updateFile, deleteFile, bulkDelete, bulkDownload,
-  uploadNewVersion, restoreVersion, getAccessLogs, getPublicGallery,
-  starFile, unstarFile, getStarredFiles, batchRename, bulkTags, extractArchive, fullTextSearch,
-  getTrashFiles, restoreFile, permanentDelete, emptyTrash, uploadFromUrl,
+  uploadFiles,
+  uploadEncryptedFiles,  // ← ADDED for E2EE
+  getFiles,
+  getStats,
+  getFile,
+  unlockFile,
+  getSignedUrl,
+  downloadFile,
+  updateFile,
+  deleteFile,
+  bulkDelete,
+  bulkDownload,
+  uploadNewVersion,
+  restoreVersion,
+  getAccessLogs,
+  getPublicGallery,
+  starFile,
+  unstarFile,
+  getStarredFiles,
+  batchRename,
+  bulkTags,
+  extractArchive,
+  fullTextSearch,
+  getTrashFiles,
+  restoreFile,
+  permanentDelete,
+  emptyTrash,
+  uploadFromUrl,
   createShareLink,
 };

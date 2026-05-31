@@ -15,7 +15,7 @@ const {
   starFile, unstarFile, getStarredFiles, batchRename, bulkTags,
   extractArchive, fullTextSearch,
   getTrashFiles, restoreFile, permanentDelete, emptyTrash, uploadFromUrl,
-  createShareLink,
+  createShareLink, uploadEncryptedFiles,  //  ADD uploadEncryptedFiles here
 } = require("../controllers/fileController");
 
 const { getShareInfo, accessShare } = require("../controllers/shareController");
@@ -53,6 +53,17 @@ router.post(
   upload.array("files", 10),
   handleMulterError,
   uploadFiles
+);
+
+// ── Upload Encrypted Files (E2EE) ──────────────────────────────────────────────
+router.post(
+  "/upload-encrypted",
+  protect,
+  uploadRateLimiter,
+  bandwidthTracker,
+  upload.array("files", 10),
+  handleMulterError,
+  uploadEncryptedFiles  // ← ADD THIS ROUTE
 );
 
 // ── Upload from URL ────────────────────────────────────────────────────────────

@@ -70,6 +70,10 @@ const fileSchema = new mongoose.Schema(
     // ✅ FIXED: labels are objects with name and color
     labels: [{ name: String, color: String }],
 
+    // ── Encryption ───────────────────────────────────────────────────────────
+    isEncrypted: { type: Boolean, default: false },
+    encryptionIV: String,
+
     // ── Virus scan ───────────────────────────────────────────────────────────
     scanStatus: { type: String, enum: ["pending", "clean", "infected", "error"], default: "pending" },
 
