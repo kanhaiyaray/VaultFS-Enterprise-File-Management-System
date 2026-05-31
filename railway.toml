@@ -1,0 +1,9 @@
+[build]
+buildCommand = "cd client && npm run build"
+
+[deploy]
+startCommand = "cd server && npm start"
+
+[deploy.variables]
+RAILPACK_INSTALL_CMD = "npm ci && cd client && npm ci --include=dev && cd ../server && npm ci"
+
