@@ -7,22 +7,22 @@
  */
 require("dotenv").config();
 
-const express     = require("express");
-const http        = require("http");
-const path        = require("path");
-const cors        = require("cors");
-const helmet      = require("helmet");
-const morgan      = require("morgan");
+const express = require("express");
+const http = require("http");
+const path = require("path");
+const cors = require("cors");
+const helmet = require("helmet");
+const morgan = require("morgan");
 const compression = require("compression");
-const mongoose    = require("mongoose");
-const { Server }  = require("socket.io");
-const { setIO }   = require("./utils/socket");
+const mongoose = require("mongoose");
+const { Server } = require("socket.io");
+const { setIO } = require("./utils/socket");
 
 // ── Passport OAuth configuration ─────────────────────────────────────────────
 const passport = require("./utils/passport");
 
 // ── Create app & HTTP server ──────────────────────────────────────────────────
-const app    = express();
+const app = express();
 const server = http.createServer(app);
 
 // ── Socket.IO ────────────────────────────────────────────────────────────────
@@ -79,14 +79,15 @@ app.use(passport.initialize());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 // ── API routes ───────────────────────────────────────────────────────────────
-app.use("/api/auth",      require("./routes/auth"));
-app.use("/api/files",     require("./routes/files"));
-app.use("/api/users",     require("./routes/users"));
-app.use("/api/admin",     require("./routes/admin"));
+app.use("/api/auth", require("./routes/auth"));
+app.use("/api/files", require("./routes/files"));
+app.use("/api/ai", require("./routes/ai"));
+app.use("/api/users", require("./routes/users"));
+app.use("/api/admin", require("./routes/admin"));
 app.use("/api/announcements", require("./routes/announcements"));
-app.use("/api/webhooks",  require("./routes/webhooks"));
-app.use("/api/branding",  require("./routes/branding"));
-app.use("/api/team",      require("./routes/team"));
+app.use("/api/webhooks", require("./routes/webhooks"));
+app.use("/api/branding", require("./routes/branding"));
+app.use("/api/team", require("./routes/team"));
 app.use("/api/file-requests", require("./routes/fileRequests"));
 
 // ── Health check ─────────────────────────────────────────────────────────────
@@ -107,13 +108,13 @@ if (process.env.NODE_ENV === "production") {
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
-  const status  = err.statusCode || err.status || 500;
-  const message = err.message    || "Internal server error";
+  const status = err.statusCode || err.status || 500;
+  const message = err.message || "Internal server error";
   res.status(status).json({ success: false, message });
 });
 
 // ── Connect to MongoDB then start server ─────────────────────────────────────
-const PORT     = process.env.PORT     || 5000;
+const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/vaultfs";
 
 mongoose

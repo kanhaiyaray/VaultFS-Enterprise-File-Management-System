@@ -5,59 +5,59 @@
 const mongoose = require("mongoose");
 
 const versionSchema = new mongoose.Schema({
-  filename:     String,
+  filename: String,
   originalName: String,
-  size:         Number,
-  path:         String,
-  url:          String,
-  hash:         String,
-  uploadedAt:   { type: Date, default: Date.now },
-  uploadedBy:   { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-  note:         String,
+  size: Number,
+  path: String,
+  url: String,
+  hash: String,
+  uploadedAt: { type: Date, default: Date.now },
+  uploadedBy: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+  note: String,
 }, { _id: true });
 
 const fileSchema = new mongoose.Schema(
   {
-    filename:     { type: String, required: true },
+    filename: { type: String, required: true },
     originalName: { type: String, required: true },
-    mimetype:     { type: String, required: true },
-    size:         { type: Number, required: true },
-    path:         { type: String, required: true },
-    url:          { type: String },
+    mimetype: { type: String, required: true },
+    size: { type: Number, required: true },
+    path: { type: String, required: true },
+    url: { type: String },
 
     // ── Ownership & organization ────────────────────────────────────────────
-    owner:        { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
-    tags:         [String],
-    description:  String,
+    owner: { type: mongoose.Schema.Types.ObjectId, ref: "User", required: true, index: true },
+    tags: [String],
+    description: String,
 
     // ── Thumbnail (images) ──────────────────────────────────────────────────
     thumbnailPath: String,
-    thumbnailUrl:  String,
+    thumbnailUrl: String,
 
     // ── Image metadata ───────────────────────────────────────────────────────
     metadata: {
-      width:        Number,
-      height:       Number,
+      width: Number,
+      height: Number,
       exifStripped: Boolean,
-      compressed:   Boolean,
+      compressed: Boolean,
       originalSize: Number,
     },
-
+    aiDescription: String,
     // ── Deduplication ────────────────────────────────────────────────────────
-    hash:    { type: String, index: true },
+    hash: { type: String, index: true },
     isDedup: { type: Boolean, default: false },
 
     // ── Versioning ───────────────────────────────────────────────────────────
     previousVersions: [versionSchema],
 
     // ── Sharing ──────────────────────────────────────────────────────────────
-    isPublic:      { type: Boolean, default: false },
-    shareToken:    { type: String, index: true },
-    shareExpiry:   Date,
+    isPublic: { type: Boolean, default: false },
+    shareToken: { type: String, index: true },
+    shareExpiry: Date,
     sharePassword: { type: String, select: false },
-    shareMaxDownloads:    Number,
-    shareDownloadCount:   { type: Number, default: 0 },
-    shareViewOnly:        { type: Boolean, default: false },
+    shareMaxDownloads: Number,
+    shareDownloadCount: { type: Number, default: 0 },
+    shareViewOnly: { type: Boolean, default: false },
 
     // ── Trash / soft delete ──────────────────────────────────────────────────
     isDeleted: { type: Boolean, default: false, index: true },
@@ -75,18 +75,18 @@ const fileSchema = new mongoose.Schema(
 
     // ── Access log (last N entries, lightweight) ─────────────────────────────
     accessLogs: [{
-      user:      { type: mongoose.Schema.Types.ObjectId, ref: "User" },
-      action:    String,
-      ip:        String,
+      user: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
+      action: String,
+      ip: String,
       userAgent: String,
-      at:        { type: Date, default: Date.now },
+      at: { type: Date, default: Date.now },
     }],
   },
   { timestamps: true }
 );
 
 // ── Text index for full-text search ──────────────────────────────────────────
-fileSchema.index({ originalName: "text", description: "text", tags: "text" });
+fileSchema.index({ originalName: "text", description: "text", tags: "text", aiDescription: "text" });
 
 // ── Compound index for common queries ─────────────────────────────────────────
 fileSchema.index({ owner: 1, isDeleted: 1, createdAt: -1 });

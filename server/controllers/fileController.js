@@ -29,6 +29,14 @@ const hashFile = (filePath) => {
   return hashBuffer(buf);
 };
 
+const generateFallbackAIDescription = ({ originalName, description, tags, mimetype }) => {
+  const label = mimetype?.startsWith("image/") ? "image" : "file";
+  const nameText = originalName ? originalName.replace(/[_-]+/g, " ").replace(/\.[^.]+$/, "") : "untitled";
+  const tagText = Array.isArray(tags) && tags.length ? ` Tags: ${tags.join(", ")}.` : "";
+  const descriptionText = description ? ` Described as: ${description}.` : "";
+  return `A ${label} named ${nameText}.${descriptionText}${tagText}`;
+};
+
 const isProcessableImage = (mime) =>
   ["image/jpeg", "image/png", "image/webp", "image/gif"].includes(mime);
 
@@ -154,6 +162,7 @@ const uploadFiles = async (req, res, next) => {
         hash: fileHash,
         tags,
         description,
+        aiDescription: generateFallbackAIDescription({ originalName: f.originalname, description, tags, mimetype: f.mimetype }),
         metadata: imgMeta,
         scanStatus: "pending",
         starredBy: [],
@@ -792,6 +801,7 @@ const fullTextSearch = async (req, res, next) => {
             $or: [
               { originalName: { $regex: term, $options: "i" } },
               { description: { $regex: term, $options: "i" } },
+              { aiDescription: { $regex: term, $options: "i" } },
               { tags: { $regex: term, $options: "i" } },
             ],
           }));
@@ -803,6 +813,7 @@ const fullTextSearch = async (req, res, next) => {
             $or: [
               { originalName: { $regex: term, $options: "i" } },
               { description: { $regex: term, $options: "i" } },
+              { aiDescription: { $regex: term, $options: "i" } },
               { tags: { $regex: term, $options: "i" } },
             ],
           });
@@ -816,6 +827,7 @@ const fullTextSearch = async (req, res, next) => {
           $nor: [
             { originalName: { $regex: term, $options: "i" } },
             { description: { $regex: term, $options: "i" } },
+            { aiDescription: { $regex: term, $options: "i" } },
             { tags: { $regex: term, $options: "i" } },
           ],
         });
@@ -1034,6 +1046,12 @@ const uploadFromUrl = async (req, res, next) => {
       hash: fileHash,
       tags: tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : ["url-import"],
       description: description || `Imported from: ${url}`,
+      aiDescription: generateFallbackAIDescription({
+        originalName: safeName,
+        description: description || `Imported from: ${url}`,
+        tags: tags ? tags.split(",").map((t) => t.trim()).filter(Boolean) : ["url-import"],
+        mimetype: contentType,
+      }),
       metadata: imgMeta,
       scanStatus: "pending",
     });
