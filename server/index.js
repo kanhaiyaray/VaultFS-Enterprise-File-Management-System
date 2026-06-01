@@ -100,6 +100,10 @@ app.get("/api/health", (req, res) => {
 // ── Serve React build in production ──────────────────────────────────────────
 if (process.env.NODE_ENV === "production") {
   const clientBuild = path.join(__dirname, "../client/dist");
+  console.log(`Production mode: clientBuild = ${clientBuild}`);
+  if (!require("fs").existsSync(clientBuild)) {
+    console.error(`ERROR: ${clientBuild} does not exist!`);
+  }
   app.use(express.static(clientBuild));
   app.get("*", (req, res) => {
     res.sendFile(path.join(clientBuild, "index.html"));
@@ -126,6 +130,8 @@ mongoose
     startWorkflowEngine();
     server.listen(PORT, () => {
       console.log(`🚀 VaultFS server running on http://localhost:${PORT}`);
+      console.log(`Serving static files from: ${path.join(__dirname, "../client/dist")}`);
+      console.log(`NODE_ENV = ${process.env.NODE_ENV}`);
     });
   })
   .catch((err) => {
