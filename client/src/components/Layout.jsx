@@ -300,7 +300,6 @@ export default function Layout({ children }) {
             )}
             <div>
               <span className="font-display font-bold text-white text-lg tracking-tight">{appName}</span>
-              <span className="block text-[10px] text-gray-600">v1.0 — Pro</span>
             </div>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="lg:hidden text-gray-500 hover:text-white">
