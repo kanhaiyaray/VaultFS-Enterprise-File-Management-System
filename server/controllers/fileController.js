@@ -12,16 +12,64 @@ const jwt = require("jsonwebtoken");
 const sharp = require("sharp");
 const archiver = require("archiver");
 const unzipper = require("unzipper");
+const dns = require("dns").promises;          // for SSRF validation
+const { isIPv4, isIPv6 } = require("net");    // for IP classification
+const { fileTypeFromFile } = require("file-type"); // 🛡️ magic‑byte validation
 
 const File = require("../models/File");
 const User = require("../models/User");
 const { sendMail, emails } = require("../utils/sendMail");
 const { logActivity } = require("../utils/activityLogger");
 const { dispatchEvent } = require("../utils/workflowEngine");
-
-// ✅ Added for download notifications and webhooks
 const { sendDownloadNotification } = require("./notificationController");
 const { triggerWebhook } = require("./webhookController");
+
+// ── SSRF protection helpers ────────────────────────────────────────────────────
+function isPrivateIP(addr) {
+  if (isIPv4(addr)) {
+    const parts = addr.split(".").map(Number);
+    // 10.0.0.0/8
+    if (parts[0] === 10) return true;
+    // 172.16.0.0/12
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    // 192.168.0.0/16
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    // 127.0.0.0/8 (loopback)
+    if (parts[0] === 127) return true;
+    // 0.0.0.0
+    if (addr === "0.0.0.0") return true;
+    // 169.254.0.0/16 (link-local)
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    return false;
+  }
+  if (isIPv6(addr)) {
+    // ::1 loopback, :: unspecified, fe80::/10 link-local, fc00::/7 unique local
+    if (addr === "::1" || addr === "::") return true;
+    if (addr.startsWith("fe80:") || addr.startsWith("fc00:") || addr.startsWith("fd00:")) return true;
+    return false;
+  }
+  return false;
+}
+
+async function isPublicUrl(urlString) {
+  const url = new URL(urlString);
+  // Only HTTP/HTTPS allowed
+  if (!["http:", "https:"].includes(url.protocol)) return false;
+
+  const hostname = url.hostname;
+  let addresses;
+  try {
+    addresses = await dns.resolve(hostname);
+  } catch {
+    return false; // unresolvable
+  }
+  // Check every resolved IP
+  for (const addr of addresses) {
+    if (isPrivateIP(addr)) return false;
+  }
+  return true;
+}
+// ── end SSRF helpers ──────────────────────────────────────────────────────────
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const hashBuffer = (buf) => crypto.createHash("sha256").update(buf).digest("hex");
@@ -66,7 +114,6 @@ async function processImage(filePath, destDir) {
   const meta = await sharp(filePath).metadata();
   const { width, height } = meta;
 
-  // Re-compress in place (JPEG/PNG)
   const ext = path.extname(filePath).toLowerCase();
   const tmp = filePath + ".tmp";
   let compressed = false;
@@ -88,7 +135,6 @@ async function processImage(filePath, destDir) {
     }
   }
 
-  // Thumbnail
   const thumbName = `thumb_${path.basename(filePath)}`;
   const thumbPath = path.join(destDir, thumbName);
   await sharp(filePath)
@@ -116,7 +162,6 @@ const uploadFiles = async (req, res, next) => {
     const skipped = [];
 
     for (const f of req.files) {
-      // Storage quota
       if (user.storageUsed + f.size > user.storageLimit) {
         fs.unlinkSync(f.path);
         skipped.push({ originalName: f.originalname, reason: "Storage quota exceeded." });
@@ -125,7 +170,6 @@ const uploadFiles = async (req, res, next) => {
 
       const fileHash = hashFile(f.path);
 
-      // Dedup check
       const existingOwn = await File.findOne({ hash: fileHash, owner: req.user.id, isDeleted: false });
       if (existingOwn) {
         fs.unlinkSync(f.path);
@@ -133,7 +177,6 @@ const uploadFiles = async (req, res, next) => {
         continue;
       }
 
-      // Image processing
       let imgMeta = {};
       let thumbPath = null;
       let thumbUrl = null;
@@ -181,13 +224,11 @@ const uploadFiles = async (req, res, next) => {
 
     emitActivity(req.user.id, "upload", { count: uploaded.length, files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size })) }, io);
 
-    // ✅ Fire webhook for each upload (once per batch)
     if (uploaded.length) {
       triggerWebhook(req.user.id, "file.uploaded", {
         files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size })),
       }).catch(() => { });
 
-      // Fire workflow events for each uploaded file
       for (const file of uploaded) {
         dispatchEvent({ type: "upload", userId: req.user.id, file }).catch(() => { });
       }
@@ -226,7 +267,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
       const f = req.files[i];
       const originalName = originalNames[i] || f.originalname.replace(/\.encrypted$/, "");
 
-      // Storage quota check
       if (user.storageUsed + f.size > user.storageLimit) {
         fs.unlinkSync(f.path);
         skipped.push({ originalName, reason: "Storage quota exceeded." });
@@ -235,7 +275,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
 
       const fileHash = hashFile(f.path);
 
-      // Check for duplicate
       const existingOwn = await File.findOne({ hash: fileHash, owner: req.user.id, isDeleted: false });
       if (existingOwn) {
         fs.unlinkSync(f.path);
@@ -243,7 +282,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
         continue;
       }
 
-      // Create file document with encryption metadata
       const fileDoc = await File.create({
         filename: f.filename,
         originalName: originalName,
@@ -273,7 +311,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
 
     emitActivity(req.user.id, "upload", { count: uploaded.length, files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size })) }, io);
 
-    // Fire webhook for each upload
     if (uploaded.length) {
       triggerWebhook(req.user.id, "file.uploaded", {
         files: uploaded.map((f) => ({ id: f._id, name: f.originalName, size: f.size, encrypted: true })),
@@ -286,8 +323,8 @@ const uploadEncryptedFiles = async (req, res, next) => {
       skipped,
       message: `${uploaded.length} encrypted file(s) uploaded.`,
     });
-  } catch (err) { 
-    next(err); 
+  } catch (err) {
+    next(err);
   }
 };
 
@@ -296,7 +333,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 const getFiles = async (req, res, next) => {
   try {
-    // Disable caching
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.setHeader('Pragma', 'no-cache');
     res.setHeader('Expires', '0');
@@ -347,7 +383,6 @@ const getStats = async (req, res, next) => {
       { $group: { _id: null, total: { $sum: "$shareDownloadCount" } } },
     ]);
 
-    // By MIME type
     const mimeAgg = await File.aggregate([
       { $match: query },
       { $group: { _id: "$mimetype", count: { $sum: 1 } } },
@@ -356,11 +391,9 @@ const getStats = async (req, res, next) => {
     ]);
     const byMimeType = Object.fromEntries(mimeAgg.map((m) => [m._id, m.count]));
 
-    // Today uploads
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
     const uploadedToday = await File.countDocuments({ ...query, createdAt: { $gte: todayStart } });
 
-    // Upload trend last 30 days
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const trendAgg = await File.aggregate([
       { $match: { ...query, createdAt: { $gte: thirtyDaysAgo } } },
@@ -396,7 +429,6 @@ const getFile = async (req, res, next) => {
     const file = await File.findById(req.params.id);
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    // Public or owner
     if (!file.isPublic && (!req.user || file.owner.toString() !== req.user.id))
       return res.status(403).json({ success: false, message: "Access denied." });
 
@@ -446,7 +478,6 @@ const deleteFile = async (req, res, next) => {
 
     emitActivity(req.user.id, "delete", { fileName: file.originalName }, io);
 
-    // ✅ Fire webhook
     triggerWebhook(req.user.id, "file.deleted", {
       fileId: file._id,
       fileName: file.originalName,
@@ -562,7 +593,6 @@ const downloadFile = async (req, res, next) => {
         } catch { }
       }
 
-      // ✅ Fire download notification and webhook (fire-and-forget)
       sendDownloadNotification(file, req).catch(() => { });
       triggerWebhook(file.owner.toString(), "file.downloaded", {
         fileId: file._id,
@@ -586,14 +616,13 @@ const downloadFile = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SIGNED URL (for secure preview / download links)
+//  SIGNED URL
 // ─────────────────────────────────────────────────────────────────────────────
 const getSignedUrl = async (req, res, next) => {
   try {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id, isDeleted: false });
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    // Generate a short-lived JWT (5 minutes) containing the fileId
     const accessToken = jwt.sign(
       { fileId: file._id.toString() },
       process.env.JWT_SECRET,
@@ -606,7 +635,7 @@ const getSignedUrl = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  UNLOCK (password-protected share)
+//  UNLOCK
 // ─────────────────────────────────────────────────────────────────────────────
 const unlockFile = async (req, res, next) => {
   try {
@@ -690,7 +719,6 @@ const restoreVersion = async (req, res, next) => {
     if (sizeDiff !== 0)
       await User.findByIdAndUpdate(req.user.id, { $inc: { storageUsed: sizeDiff } });
 
-    // ✅ Fire webhook for restore
     triggerWebhook(req.user.id, "file.restored", {
       fileId: file._id,
       fileName: file.originalName,
@@ -744,7 +772,6 @@ const starFile = async (req, res, next) => {
     );
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    // ✅ Fire webhook for star
     triggerWebhook(req.user.id, "file.starred", {
       fileId: file._id,
       fileName: file.originalName,
@@ -816,7 +843,7 @@ const bulkTags = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  EXTRACT ARCHIVE
+//  EXTRACT ARCHIVE  (🔒 FIXED: Zip Slip using path.basename & validation)
 // ─────────────────────────────────────────────────────────────────────────────
 const extractArchive = async (req, res, next) => {
   try {
@@ -828,30 +855,45 @@ const extractArchive = async (req, res, next) => {
     const destDir = path.join(path.dirname(file.path), `extracted_${Date.now()}`);
     fs.mkdirSync(destDir, { recursive: true });
 
-    const extracted = [];
-    await fs.createReadStream(file.path)
-      .pipe(unzipper.Parse())
-      .on("entry", (entry) => {
-        const safeName = path.basename(entry.path);
-        const destPath = path.join(destDir, safeName);
-        entry.pipe(fs.createWriteStream(destPath)).on("finish", () => {
-          extracted.push({ name: safeName, path: destPath });
-        });
-      })
-      .promise();
-
     const createdFiles = [];
-    for (const e of extracted) {
-      const stat = fs.statSync(e.path);
+    const zip = await unzipper.Open.file(file.path);
+
+    for (const entry of zip.files) {
+      // ── Security fix: use only basename to prevent directory traversal ──
+      const safeName = path.basename(entry.path);
+      const destPath = path.join(destDir, safeName);
+      const resolved = path.resolve(destPath);
+
+      // Verify that the resolved path is still inside destDir
+      if (!resolved.startsWith(destDir)) {
+        // Malicious path – skip this entry
+        continue;
+      }
+
+      // If it's a directory, we can ignore it (flattened structure)
+      if (entry.type === 'Directory') {
+        continue;
+      }
+
+      // Ensure parent directory exists (though with basename it's just destDir)
+      const parentDir = path.dirname(resolved);
+      fs.mkdirSync(parentDir, { recursive: true });
+
+      // Read and write the file
+      const content = await entry.buffer();
+      fs.writeFileSync(resolved, content);
+
+      // Create a File document for each extracted file
+      const stat = fs.statSync(resolved);
       const doc = await File.create({
-        filename: path.basename(e.path),
-        originalName: e.name,
+        filename: path.basename(resolved),
+        originalName: entry.path,  // preserve full path for reference
         mimetype: "application/octet-stream",
         size: stat.size,
-        path: e.path,
-        url: `/uploads/${req.user.id}/${path.basename(e.path)}`,
+        path: resolved,
+        url: `/uploads/${req.user.id}/${path.basename(resolved)}`,
         owner: req.user.id,
-        hash: hashFile(e.path),
+        hash: hashFile(resolved),
         tags: ["extracted"],
         scanStatus: "pending",
       });
@@ -864,13 +906,13 @@ const extractArchive = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  FULL TEXT SEARCH (supports all AdvancedSearch filters)
+//  FULL TEXT SEARCH
 // ─────────────────────────────────────────────────────────────────────────────
 const fullTextSearch = async (req, res, next) => {
   try {
     const {
       q = "",
-      operator = "AND",           // "AND" or "OR"
+      operator = "AND",
       mimetype = "",
       tags = "",
       dateFrom = "",
@@ -886,7 +928,6 @@ const fullTextSearch = async (req, res, next) => {
     const ownerFilter = req.user.role === "admin" ? {} : { owner: req.user.id };
     Object.assign(filter, ownerFilter);
 
-    // ── Full‑text query (with optional NOT terms using minus prefix) ─────────
     if (q && q.trim()) {
       const terms = q.trim().split(/\s+/);
       const mustTerms = terms.filter(t => !t.startsWith("-"));
@@ -903,7 +944,7 @@ const fullTextSearch = async (req, res, next) => {
             ],
           }));
         }
-      } else { // AND
+      } else {
         mustTerms.forEach(term => {
           filter.$and = filter.$and || [];
           filter.$and.push({
@@ -917,7 +958,6 @@ const fullTextSearch = async (req, res, next) => {
         });
       }
 
-      // NOT terms: ensure none of the fields contain the term
       for (const term of notTerms) {
         filter.$and = filter.$and || [];
         filter.$and.push({
@@ -931,34 +971,28 @@ const fullTextSearch = async (req, res, next) => {
       }
     }
 
-    // ── MIME type filter (prefix or exact) ──────────────────────────────────
     if (mimetype) {
       filter.mimetype = { $regex: `^${mimetype}`, $options: "i" };
     }
 
-    // ── Tags filter (comma‑separated, all must match) ───────────────────────
     if (tags) {
       const tagList = tags.split(",").map(t => t.trim());
       filter.tags = { $all: tagList };
     }
 
-    // ── Date range (createdAt) ──────────────────────────────────────────────
     if (dateFrom || dateTo) {
       filter.createdAt = {};
       if (dateFrom) filter.createdAt.$gte = new Date(dateFrom);
       if (dateTo) filter.createdAt.$lte = new Date(dateTo);
     }
 
-    // ── Starred only ────────────────────────────────────────────────────────
     if (starred === "true" || starred === true) {
       filter.starredBy = req.user.id;
     }
 
-    // ── Sorting ─────────────────────────────────────────────────────────────
     const sort = {};
     sort[sortBy] = order === "asc" ? 1 : -1;
 
-    // ── Pagination ──────────────────────────────────────────────────────────
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
@@ -969,7 +1003,6 @@ const fullTextSearch = async (req, res, next) => {
       .limit(limitNum)
       .lean();
 
-    // Add `isStarred` flag (frontend expects it)
     const userId = req.user.id.toString();
     const transformedFiles = files.map(f => ({
       ...f,
@@ -1019,7 +1052,6 @@ const restoreFile = async (req, res, next) => {
     await file.save();
     await User.findByIdAndUpdate(req.user.id, { $inc: { storageUsed: file.size } });
 
-    // ✅ Fire webhook for restore
     triggerWebhook(req.user.id, "file.restored", {
       fileId: file._id,
       fileName: file.originalName,
@@ -1059,7 +1091,7 @@ const emptyTrash = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  UPLOAD FROM URL
+//  UPLOAD FROM URL  (🔒 FIXED: SSRF + MIME magic‑byte validation)
 // ─────────────────────────────────────────────────────────────────────────────
 const uploadFromUrl = async (req, res, next) => {
   try {
@@ -1071,6 +1103,12 @@ const uploadFromUrl = async (req, res, next) => {
     try { parsedUrl = new URL(url); } catch {
       return res.status(400).json({ success: false, message: "Invalid URL format." });
     }
+
+    // ─── SSRF protection ───
+    if (!await isPublicUrl(url)) {
+      return res.status(400).json({ success: false, message: "URL points to a private or non‑routable address." });
+    }
+
     if (!["http:", "https:"].includes(parsedUrl.protocol))
       return res.status(400).json({ success: false, message: "Only HTTP/HTTPS URLs are supported." });
 
@@ -1116,6 +1154,43 @@ const uploadFromUrl = async (req, res, next) => {
     const destPath = path.join(userDir, generatedFilename);
     fs.writeFileSync(destPath, buffer);
 
+    // ─── 🛡️ Magic‑byte validation ───
+    const detected = await fileTypeFromFile(destPath);
+    // Allowed MIME types (same as in upload middleware)
+    const ALLOWED_TYPES = new Set([
+      "image/jpeg","image/png","image/gif","image/webp","image/svg+xml",
+      "application/pdf","application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      "application/vnd.ms-excel",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-powerpoint",
+      "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      "text/plain","text/csv","text/markdown",
+      "application/zip","application/x-zip-compressed",
+      "application/x-tar","application/gzip",
+      "video/mp4","video/webm","video/quicktime",
+      "audio/mpeg","audio/wav","audio/ogg","audio/flac",
+      "application/json","text/javascript","text/html","text/css",
+    ]);
+    const SAFE_UNDETECTABLE = new Set([
+      "text/plain", "text/csv", "text/markdown",
+      "application/json", "text/javascript", "text/html", "text/css",
+      "application/xml", "text/xml",
+    ]);
+
+    if (detected) {
+      if (!ALLOWED_TYPES.has(detected.mime)) {
+        fs.unlinkSync(destPath);
+        return res.status(400).json({ success: false, message: `Detected file type "${detected.mime}" is not allowed.` });
+      }
+    } else {
+      if (!SAFE_UNDETECTABLE.has(contentType)) {
+        fs.unlinkSync(destPath);
+        return res.status(400).json({ success: false, message: `File type could not be verified and is not in the safe‑list.` });
+      }
+    }
+    // ─── end validation ──────────────────────────────────────────────────────
+
     let imgMeta = {};
     let thumbPath = null;
     let thumbUrl = null;
@@ -1157,7 +1232,6 @@ const uploadFromUrl = async (req, res, next) => {
     await logAccess(fileDoc._id, req.user.id, "upload", req);
     emitActivity(req.user.id, "upload", { count: 1, files: [{ id: fileDoc._id, name: fileDoc.originalName, size: fileDoc.size }] }, io);
 
-    // ✅ Fire webhook for URL import upload
     triggerWebhook(req.user.id, "file.uploaded", {
       files: [{ id: fileDoc._id, name: fileDoc.originalName, size: fileDoc.size }],
     }).catch(() => { });
@@ -1200,7 +1274,7 @@ const createShareLink = async (req, res, next) => {
 // ─────────────────────────────────────────────────────────────────────────────
 module.exports = {
   uploadFiles,
-  uploadEncryptedFiles,  // ← ADDED for E2EE
+  uploadEncryptedFiles,
   getFiles,
   getStats,
   getFile,
@@ -1226,6 +1300,6 @@ module.exports = {
   restoreFile,
   permanentDelete,
   emptyTrash,
-  uploadFromUrl,
+  uploadFromUrl,          //  SSRF + MIME magic‑byte fixed
   createShareLink,
 };

@@ -6,7 +6,7 @@
 const express = require("express");
 const { protect, optionalAuth } = require("../middleware/auth");
 const { uploadRateLimiter, downloadRateLimiter, bandwidthTracker } = require("../middleware/rateLimiter");
-const { upload, handleMulterError } = require("../middleware/upload");
+const { upload, validateFiles, handleMulterError } = require("../middleware/upload");
 
 const {
   uploadFiles, getFiles, getStats, getFile, unlockFile, getSignedUrl,
@@ -15,7 +15,7 @@ const {
   starFile, unstarFile, getStarredFiles, batchRename, bulkTags,
   extractArchive, fullTextSearch,
   getTrashFiles, restoreFile, permanentDelete, emptyTrash, uploadFromUrl,
-  createShareLink, uploadEncryptedFiles,  //  ADD uploadEncryptedFiles here
+  createShareLink, uploadEncryptedFiles,
 } = require("../controllers/fileController");
 
 const { getShareInfo, accessShare } = require("../controllers/shareController");
@@ -25,7 +25,7 @@ const router = express.Router();
 // ── Public gallery ─────────────────────────────────────────────────────────────
 router.get("/public/gallery", getPublicGallery);
 
-// ── Stats (before /:id) ────────────────────────────────────────────────────────
+// ── Stats (before /:id) ──────────────────────────────────────────────────────
 router.get("/stats", protect, getStats);
 
 // ── Starred ────────────────────────────────────────────────────────────────────
@@ -51,7 +51,8 @@ router.post(
   uploadRateLimiter,
   bandwidthTracker,
   upload.array("files", 10),
-  handleMulterError,
+  validateFiles,          // 🛡️ Magic‑byte validation
+  handleMulterError,      // Catches Multer & validation errors
   uploadFiles
 );
 
@@ -62,8 +63,9 @@ router.post(
   uploadRateLimiter,
   bandwidthTracker,
   upload.array("files", 10),
+  validateFiles,          // 🛡️ Magic‑byte validation
   handleMulterError,
-  uploadEncryptedFiles  // ← ADD THIS ROUTE
+  uploadEncryptedFiles
 );
 
 // ── Upload from URL ────────────────────────────────────────────────────────────
@@ -79,7 +81,14 @@ router.get("/:id/signed-url", protect, getSignedUrl);
 router.get("/download/:id", optionalAuth, downloadRateLimiter, downloadFile);
 
 // ── Versioning ─────────────────────────────────────────────────────────────────
-router.put("/:id/version", protect, upload.single("file"), handleMulterError, uploadNewVersion);
+router.put(
+  "/:id/version",
+  protect,
+  upload.single("file"),
+  validateFiles,          // 🛡️ Magic‑byte validation for single file
+  handleMulterError,
+  uploadNewVersion
+);
 router.post("/:id/version/:versionIndex/restore", protect, restoreVersion);
 
 // ── Access logs ────────────────────────────────────────────────────────────────
@@ -108,5 +117,8 @@ router.get("/:id",       optionalAuth, getFile);
 router.post("/:id/unlock", optionalAuth, unlockFile);
 router.put("/:id",       protect, updateFile);
 router.delete("/:id",    protect, deleteFile);
+
+// ── Global error handler for Multer & validation errors (safety net) ─────────
+router.use(handleMulterError);
 
 module.exports = router;

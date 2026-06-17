@@ -1,7 +1,47 @@
 const Webhook = require("../models/Webhook");
 const crypto  = require("crypto");
+const dns = require("dns").promises;
+const { isIPv4, isIPv6 } = require("net");
 
-// ── GET /api/webhooks ─────────────────────────────────────────────────────────
+// ── SSRF protection helpers (shared with fileController) ─────────────────────
+function isPrivateIP(addr) {
+  if (isIPv4(addr)) {
+    const parts = addr.split(".").map(Number);
+    if (parts[0] === 10) return true;
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
+    if (parts[0] === 127) return true;
+    if (addr === "0.0.0.0") return true;
+    if (parts[0] === 169 && parts[1] === 254) return true;
+    return false;
+  }
+  if (isIPv6(addr)) {
+    if (addr === "::1" || addr === "::") return true;
+    if (addr.startsWith("fe80:") || addr.startsWith("fc00:") || addr.startsWith("fd00:")) return true;
+    return false;
+  }
+  return false;
+}
+
+async function isPublicUrl(urlString) {
+  const url = new URL(urlString);
+  if (!["http:", "https:"].includes(url.protocol)) return false;
+
+  const hostname = url.hostname;
+  let addresses;
+  try {
+    addresses = await dns.resolve(hostname);
+  } catch {
+    return false;
+  }
+  for (const addr of addresses) {
+    if (isPrivateIP(addr)) return false;
+  }
+  return true;
+}
+// ──────────────────────────────────────────────────────────────────────────────
+
+// ── CRUD endpoints ────────────────────────────────────────────────────────────
 const getWebhooks = async (req, res, next) => {
   try {
     const webhooks = await Webhook.find({ owner: req.user.id }).sort({ createdAt: -1 });
@@ -9,7 +49,6 @@ const getWebhooks = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── POST /api/webhooks ────────────────────────────────────────────────────────
 const createWebhook = async (req, res, next) => {
   try {
     const { name, url, secret, events } = req.body;
@@ -37,7 +76,6 @@ const createWebhook = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── PUT /api/webhooks/:id ─────────────────────────────────────────────────────
 const updateWebhook = async (req, res, next) => {
   try {
     const allowed = ["name", "url", "secret", "events", "isActive"];
@@ -54,7 +92,6 @@ const updateWebhook = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── DELETE /api/webhooks/:id ──────────────────────────────────────────────────
 const deleteWebhook = async (req, res, next) => {
   try {
     const webhook = await Webhook.findOneAndDelete({ _id: req.params.id, owner: req.user.id });
@@ -63,7 +100,6 @@ const deleteWebhook = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── POST /api/webhooks/:id/test ───────────────────────────────────────────────
 const testWebhook = async (req, res, next) => {
   try {
     const webhook = await Webhook.findOne({ _id: req.params.id, owner: req.user.id });
@@ -83,8 +119,33 @@ const testWebhook = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── dispatchWebhook — internal ────────────────────────────────────────────────
+// ── dispatchWebhook (internal) with SSRF protection ──────────────────────────
 async function dispatchWebhook(webhook, event, payload) {
+  // ─── SSRF & protocol validation ───
+  // 1) Enforce HTTPS (can be relaxed for local dev via env)
+  const allowHttp = process.env.WEBHOOK_ALLOW_HTTP === "true";
+  const url = new URL(webhook.url);
+  if (!allowHttp && url.protocol !== "https:") {
+    // Mark as failure without attempting delivery
+    await Webhook.findByIdAndUpdate(webhook._id, {
+      lastFiredAt:    new Date(),
+      lastStatusCode: 0,
+      $inc: { totalFired: 1, failureCount: 1 },
+    });
+    return 0;
+  }
+
+  // 2) Validate that the URL resolves to a public IP
+  if (!await isPublicUrl(webhook.url)) {
+    await Webhook.findByIdAndUpdate(webhook._id, {
+      lastFiredAt:    new Date(),
+      lastStatusCode: 0,
+      $inc: { totalFired: 1, failureCount: 1 },
+    });
+    return 0;
+  }
+  // ──────────────────────────────────
+
   const body = JSON.stringify({
     event,
     payload,
@@ -144,15 +205,14 @@ async function triggerWebhook(userId, event, payload) {
   try {
     const webhooks = await Webhook.find({ owner: userId, isActive: true, events: event });
     if (!webhooks.length) return;
-    // Fire all webhooks concurrently; failures don't throw
     await Promise.allSettled(webhooks.map((wh) => dispatchWebhook(wh, event, payload)));
   } catch {
-    // Non-fatal — never break the main request
+    // Non‑fatal — never break the main request
   }
 }
 
 module.exports = {
   getWebhooks, createWebhook, updateWebhook, deleteWebhook, testWebhook,
-  triggerWebhook,    // exported for use in fileController.js
+  triggerWebhook,
   dispatchWebhook,   // exported for testing
 };

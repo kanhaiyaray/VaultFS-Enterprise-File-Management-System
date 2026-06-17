@@ -4,16 +4,7 @@
  * Handles:
  *   - Syntax-highlighted code for 30+ languages (Prism.js via CDN)
  *   - Markdown rendered as HTML (marked.js via CDN)
- *   - Live markdown editor with split-pane preview
- *
- * Usage in FilePreviewModal:
- *   import { CodePreview, MarkdownPreview } from "./CodeAndMarkdownPreview";
- *
- *   // For code files (text/plain, .js, .py, .ts, etc.)
- *   <CodePreview content={textContent} language={detectedLanguage} filename={file.originalName} />
- *
- *   // For markdown files (.md)
- *   <MarkdownPreview content={textContent} editable={isOwner} onSave={handleSave} />
+ *   - Live markdown editor with split-pane preview />
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
@@ -22,6 +13,7 @@ import {
   Loader2, WrapText, Maximize2, Code2,
 } from "lucide-react";
 import toast from "react-hot-toast";
+import DOMPurify from 'dompurify'; // <-- Added for sanitization
 
 // ── Language detection from filename ─────────────────────────────────────────
 const EXT_LANG_MAP = {
@@ -209,8 +201,14 @@ export function MarkdownPreview({ content: initialContent = "", editable = false
     let cancelled = false;
     loadMarked().then((marked) => {
       if (!cancelled) {
-        const rendered = marked.parse(content);
-        setHtml(rendered);
+        const rawHtml = marked.parse(content);
+        // 🔒 Sanitize the rendered HTML with extra safety options
+        const sanitized = DOMPurify.sanitize(rawHtml, {
+          USE_PROFILES: { html: true },
+          FORBID_TAGS: ['script', 'style', 'iframe', 'object', 'embed', 'form', 'input', 'button'],
+          FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+        });
+        setHtml(sanitized);
         setLoading(false);
       }
     });

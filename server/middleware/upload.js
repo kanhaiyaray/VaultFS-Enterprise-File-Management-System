@@ -7,6 +7,7 @@ const multer = require("multer");
 const path   = require("path");
 const fs     = require("fs");
 const crypto = require("crypto");
+const { fileTypeFromBuffer } = require("file-type");
 
 const MAX_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024; // 50MB
 
@@ -54,6 +55,57 @@ const upload = multer({
   fileFilter,
 });
 
+// ── Magic‑byte validation (anti‑MIME spoofing) ─────────────────────────────
+async function validateFileMagic(file) {
+  // Read the first 4100 bytes (enough for most magic numbers)
+  const buffer = await fs.promises.readFile(file.path, { length: 4100 });
+  const detected = await fileTypeFromBuffer(buffer);
+
+  // If we detected a MIME type, it must be in the allowed list
+  if (detected) {
+    if (!ALLOWED_TYPES.has(detected.mime)) {
+      throw new Error(`Detected file type "${detected.mime}" is not allowed.`);
+    }
+    return;
+  }
+
+  // No magic detected (e.g., plain text, CSV, etc.)
+  const SAFE_UNDETECTABLE = new Set([
+    "text/plain", "text/csv", "text/markdown",
+    "application/json", "text/javascript", "text/html", "text/css",
+    "application/xml", "text/xml",
+  ]);
+  if (!SAFE_UNDETECTABLE.has(file.mimetype)) {
+    throw new Error(`File type could not be verified and is not in the safe‑list.`);
+  }
+}
+
+// ── Middleware: validate all uploaded files after Multer ────────────────────
+async function validateFiles(req, res, next) {
+  if (!req.files) {
+    return next();
+  }
+
+  const fileList = Array.isArray(req.files) ? req.files : Object.values(req.files).flat();
+
+  try {
+    for (const file of fileList) {
+      await validateFileMagic(file);
+    }
+    next();
+  } catch (err) {
+    // Delete any uploaded files that passed Multer but failed validation
+    for (const file of fileList) {
+      try {
+        if (file.path && fs.existsSync(file.path)) {
+          await fs.promises.unlink(file.path);
+        }
+      } catch { /* ignore */ }
+    }
+    return next(new Error(err.message));
+  }
+}
+
 // ── Convert Multer errors to clean API responses ──────────────────────────────
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
@@ -71,4 +123,4 @@ const handleMulterError = (err, req, res, next) => {
   next();
 };
 
-module.exports = { upload, handleMulterError };
+module.exports = { upload, validateFiles, handleMulterError };

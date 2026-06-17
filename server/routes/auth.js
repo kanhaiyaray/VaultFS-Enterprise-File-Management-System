@@ -5,6 +5,7 @@
 const express = require("express");
 const passport = require("passport");
 const jwt = require("jsonwebtoken");
+const rateLimit = require("express-rate-limit");
 const { protect } = require("../middleware/auth");
 
 const {
@@ -14,22 +15,43 @@ const {
   verifyEmail, resendVerification,
 } = require("../controllers/authController");
 
-// FIX 5: Import changePassword (was exported but never routed)
 const { changePassword } = require("../controllers/notificationController");
 
 const router = express.Router();
 
+// ── Rate limiters ────────────────────────────────────────────────────────────
+// Stricter limits for authentication endpoints to prevent brute force
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,                  // 10 attempts per window
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts. Please try again after 15 minutes.",
+  },
+});
+
+// Slightly looser for registration (new users) – still protected
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20,
+  message: {
+    success: false,
+    message: "Too many registration attempts. Please try again later.",
+  },
+});
+
 // ── Core ──────────────────────────────────────────────────────────────────────
-router.post("/register", register);
-router.post("/login", login);
+router.post("/register", registerLimiter, register);
+router.post("/login", authLimiter, login);
 router.get("/me", protect, getMe);
 
-// FIX 5: Register the change-password route (was missing — SettingsPage got 404)
 router.put("/change-password", protect, changePassword);
 
 // ── Password reset ────────────────────────────────────────────────────────────
-router.post("/forgot-password", forgotPassword);
-router.post("/reset-password", resetPassword);
+router.post("/forgot-password", authLimiter, forgotPassword);
+router.post("/reset-password", authLimiter, resetPassword);
 
 // ── Email verification ────────────────────────────────────────────────────────
 router.get("/verify-email", verifyEmail);
@@ -57,7 +79,6 @@ router.post("/verify-suspicious", async (req, res, next) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
     
-    // Mark the device as trusted
     const Device = require("../models/Device");
     const device = await Device.findOne({ user: user._id, fingerprint: decoded.fingerprint });
     if (device) {

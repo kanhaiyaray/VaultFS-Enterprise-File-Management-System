@@ -35,7 +35,6 @@ const io = new Server(server, {
   },
 });
 
-// Expose io to controllers via app.locals
 app.locals.io = io;
 setIO(io);
 
@@ -62,22 +61,56 @@ io.on("connection", (socket) => {
 });
 
 // ── Security & utility middleware ────────────────────────────────────────────
-app.use(helmet({
-  crossOriginEmbedderPolicy: false,      // allow iframe embeds
-  contentSecurityPolicy: false,           // handled separately if needed
-}));
-app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:5173",
-  credentials: true,
-}));
+app.use(
+  helmet({
+    crossOriginEmbedderPolicy: false, // allow iframe embeds
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",                // required for frontend
+          "https://cdnjs.cloudflare.com",   // Prism.js, Marked, etc.
+          "https://cdn.jsdelivr.net",       // additional CDN
+        ],
+        styleSrc: [
+          "'self'",
+          "'unsafe-inline'",                // required for frontend
+          "https://cdnjs.cloudflare.com",   // Prism themes
+          "https://fonts.googleapis.com",   // Google Fonts
+        ],
+        imgSrc: ["'self'", "data:"],
+        connectSrc: [
+          "'self'",
+          process.env.CLIENT_URL || "http://localhost:5173",
+        ],
+        fontSrc: [
+          "'self'",
+          "https://fonts.gstatic.com",      // Google Fonts
+          "data:",
+        ],
+        frameSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        upgradeInsecureRequests: process.env.NODE_ENV === "production" ? [] : null,
+      },
+    },
+  })
+);
+
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    credentials: true,
+  })
+);
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(passport.initialize());
 
-// ── Serve uploaded files as static ───────────────────────────────────────────
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// ── 🛡️ REMOVED STATIC /uploads ROUTE – all file access now goes through
+//    the authenticated /api/files/download/:id endpoint.
 
 // ── API routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", require("./routes/auth"));
@@ -110,12 +143,15 @@ if (process.env.NODE_ENV === "production") {
   });
 }
 
-// ── Global error handler ─────────────────────────────────────────────────────
+// ── Global error handler (hidden details in production) ─────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
   const status = err.statusCode || err.status || 500;
-  const message = err.message || "Internal server error";
+  // In production, do not leak internal error details
+  const message = process.env.NODE_ENV === "production"
+    ? "Internal server error"
+    : err.message || "Internal server error";
   res.status(status).json({ success: false, message });
 });
 
@@ -132,6 +168,7 @@ mongoose
       console.log(`🚀 VaultFS server running on http://localhost:${PORT}`);
       console.log(`Serving static files from: ${path.join(__dirname, "../client/dist")}`);
       console.log(`NODE_ENV = ${process.env.NODE_ENV}`);
+      console.log(`🔒 Static /uploads route is DISABLED – all file access via /api/files/download/:id`);
     });
   })
   .catch((err) => {
