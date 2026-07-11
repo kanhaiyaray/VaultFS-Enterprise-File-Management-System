@@ -19,7 +19,6 @@ import {
   ZoomIn,
   ZoomOut,
   RotateCw,
-  BookOpen,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../utils/api";
@@ -58,7 +57,10 @@ function ImageViewer({ src, alt }) {
 
   return (
     <div className="flex flex-col items-center gap-3">
-      <div className="overflow-hidden rounded-xl border border-surface-4 bg-surface-0 relative w-full flex items-center justify-center" style={{ minHeight: 240, maxHeight: 520 }}>
+      <div 
+        className="overflow-hidden rounded-xl border border-surface-4 bg-surface-0 relative w-full flex items-center justify-center" 
+        style={{ minHeight: 240, maxHeight: 520 }}
+      >
         <img
           src={src}
           alt={alt}
@@ -68,17 +70,29 @@ function ImageViewer({ src, alt }) {
         />
       </div>
       <div className="flex items-center gap-1 bg-surface-2 border border-surface-4 rounded-lg px-2 py-1.5">
-        <button onClick={() => setScale((value) => Math.max(0.25, value - 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
+        <button 
+          onClick={() => setScale((value) => Math.max(0.25, value - 0.25))} 
+          className="p-1 text-gray-500 hover:text-white transition-colors"
+        >
           <ZoomOut size={13} />
         </button>
-        <button onClick={() => { setScale(1); setRotate(0); }} className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors">
+        <button 
+          onClick={() => { setScale(1); setRotate(0); }} 
+          className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors"
+        >
           {Math.round(scale * 100)}%
         </button>
-        <button onClick={() => setScale((value) => Math.min(4, value + 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
+        <button 
+          onClick={() => setScale((value) => Math.min(4, value + 0.25))} 
+          className="p-1 text-gray-500 hover:text-white transition-colors"
+        >
           <ZoomIn size={13} />
         </button>
         <div className="w-px h-4 bg-surface-4 mx-1" />
-        <button onClick={() => setRotate((value) => value + 90)} className="p-1 text-gray-500 hover:text-white transition-colors">
+        <button 
+          onClick={() => setRotate((value) => value + 90)} 
+          className="p-1 text-gray-500 hover:text-white transition-colors"
+        >
           <RotateCw size={13} />
         </button>
       </div>
@@ -131,11 +145,17 @@ function TextFetcher({ file, downloadUrl }) {
     if (!downloadUrl) return;
     let mounted = true;
 
-    fetch(downloadUrl)
-      .then((response) => response.text())
-      .then((value) => { if (mounted) setContent(value); })
-      .catch(() => { if (mounted) setContent("// Failed to load file content."); })
-      .finally(() => { if (mounted) setLoading(false); });
+    // ✅ FIX: Use axios with auth instead of plain fetch
+    api.get(downloadUrl, { responseType: "text" })
+      .then((response) => { 
+        if (mounted) setContent(response.data); 
+      })
+      .catch(() => { 
+        if (mounted) setContent("// Failed to load file content."); 
+      })
+      .finally(() => { 
+        if (mounted) setLoading(false); 
+      });
 
     return () => { mounted = false; };
   }, [downloadUrl]);
@@ -507,8 +527,15 @@ export default function FilePreviewModal({
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up" onClick={(event) => event.stopPropagation()}>
+      <div 
+        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
+        onClick={onClose}
+      >
+        <div 
+          className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up" 
+          onClick={(event) => event.stopPropagation()}
+        >
+          {/* Header */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-3 flex-shrink-0">
             <span className="text-2xl flex-shrink-0">{getFileIcon(file.mimetype)}</span>
 
@@ -542,24 +569,43 @@ export default function FilePreviewModal({
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {isOwner && <LabelPicker file={file} onUpdate={(updated) => setFile(updated)} />}
 
-              <button onClick={handleStar} disabled={starring} className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all">
+              <button 
+                onClick={handleStar} 
+                disabled={starring} 
+                className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all"
+              >
                 <Star size={15} className={file.isStarred ? "fill-yellow-400 text-yellow-400" : ""} />
               </button>
 
               {isOwner && (
-                <button onClick={() => setRenaming((prev) => !prev)} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
+                <button 
+                  onClick={() => setRenaming((prev) => !prev)} 
+                  className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
+                >
                   <Edit3 size={15} />
                 </button>
               )}
 
-              <button onClick={() => setShowShare(true)} className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all">
+              <button 
+                onClick={() => setShowShare(true)} 
+                className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all"
+              >
                 <Share2 size={15} />
               </button>
-              <button onClick={handleDownload} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
+              
+              <button 
+                onClick={handleDownload} 
+                className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
+              >
                 <Download size={15} />
               </button>
+              
               {isOwner && (
-                <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all">
+                <button 
+                  onClick={handleDelete} 
+                  disabled={deleting} 
+                  className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all"
+                >
                   {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 </button>
               )}
@@ -567,22 +613,34 @@ export default function FilePreviewModal({
               {files.length > 1 && (
                 <>
                   <div className="w-px h-5 bg-surface-4 mx-1" />
-                  <button onClick={() => setFile(files[currentIndex - 1])} disabled={!hasPrev} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
+                  <button 
+                    onClick={() => setFile(files[currentIndex - 1])} 
+                    disabled={!hasPrev} 
+                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
+                  >
                     <ChevronLeft size={15} />
                   </button>
                   <span className="text-xs text-gray-600 font-mono">{currentIndex + 1}/{files.length}</span>
-                  <button onClick={() => setFile(files[currentIndex + 1])} disabled={!hasNext} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
+                  <button 
+                    onClick={() => setFile(files[currentIndex + 1])} 
+                    disabled={!hasNext} 
+                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
+                  >
                     <ChevronRight size={15} />
                   </button>
                 </>
               )}
 
-              <button onClick={onClose} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all ml-1">
+              <button 
+                onClick={onClose} 
+                className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all ml-1"
+              >
                 <X size={15} />
               </button>
             </div>
           </div>
 
+          {/* Tabs */}
           <div className="flex gap-0.5 px-5 pt-3 border-b border-surface-3 flex-shrink-0 overflow-x-auto">
             {TABS.map(({ id, label, icon: Icon }) => (
               <button
@@ -598,6 +656,7 @@ export default function FilePreviewModal({
             ))}
           </div>
 
+          {/* Content */}
           <div className="flex-1 overflow-y-auto p-5">
             {tab === "preview" && <div className="animate-fade-up">{preview}</div>}
             {tab === "info" && <InfoTab file={file} organizerMeta={organizerMeta} />}

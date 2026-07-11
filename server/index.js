@@ -163,6 +163,21 @@ mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB connected");
+    
+    // ── Verify Supabase storage configuration ────────────────────────────────
+    try {
+      const supabase = require("./utils/supabase");
+      if (supabase.supabaseAdmin) {
+        console.log("✅ Supabase storage configured");
+        console.log(`   📦 Bucket: ${supabase.SUPABASE_BUCKET}`);
+      } else {
+        console.warn("⚠️ Supabase not configured — using local storage");
+        console.warn("   Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env to enable");
+      }
+    } catch (err) {
+      console.warn("⚠️ Supabase module not found — using local storage only");
+    }
+    
     startWorkflowEngine();
     server.listen(PORT, () => {
       console.log(`🚀 VaultFS server running on http://localhost:${PORT}`);

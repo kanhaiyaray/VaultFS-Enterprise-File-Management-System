@@ -43,6 +43,7 @@ const fileSchema = new mongoose.Schema(
       originalSize: Number,
     },
     aiDescription: String,
+    
     // ── Deduplication ────────────────────────────────────────────────────────
     hash: { type: String, index: true },
     isDedup: { type: Boolean, default: false },
@@ -85,6 +86,21 @@ const fileSchema = new mongoose.Schema(
       userAgent: String,
       at: { type: Date, default: Date.now },
     }],
+
+    // ── Supabase storage fields ─────────────────────────────────────────────
+    storageProvider: {
+      type: String,
+      enum: ['local', 'supabase'],
+      default: 'local',
+    },
+    storagePath: {
+      type: String,  // The path in Supabase storage
+      default: null,
+    },
+    signedUrlExpiry: {
+      type: Date,
+      default: null,
+    },
   },
   { timestamps: true }
 );
@@ -95,5 +111,9 @@ fileSchema.index({ originalName: "text", description: "text", tags: "text", aiDe
 // ── Compound index for common queries ─────────────────────────────────────────
 fileSchema.index({ owner: 1, isDeleted: 1, createdAt: -1 });
 fileSchema.index({ owner: 1, "starredBy": 1 });
+
+// ── Index for Supabase storage queries ──────────────────────────────────────
+fileSchema.index({ storageProvider: 1, owner: 1 });
+fileSchema.index({ storagePath: 1 }, { sparse: true });
 
 module.exports = mongoose.model("File", fileSchema);

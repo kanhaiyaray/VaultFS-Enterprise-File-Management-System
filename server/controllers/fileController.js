@@ -16,6 +16,9 @@ const dns = require("dns").promises;          // for SSRF validation
 const { isIPv4, isIPv6 } = require("net");    // for IP classification
 const { fileTypeFromFile } = require("file-type"); // 🛡️ magic‑byte validation
 
+// ── Supabase Storage ────────────────────────────────────────────────────────────
+const supabase = require("../utils/supabase");
+
 const File = require("../models/File");
 const User = require("../models/User");
 const { sendMail, emails } = require("../utils/sendMail");
@@ -146,7 +149,7 @@ async function processImage(filePath, destDir) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  UPLOAD
+//  UPLOAD (SUPABASE ENABLED) - WITH QUOTA CHECK
 // ─────────────────────────────────────────────────────────────────────────────
 const uploadFiles = async (req, res, next) => {
   try {
@@ -162,13 +165,16 @@ const uploadFiles = async (req, res, next) => {
     const skipped = [];
 
     for (const f of req.files) {
+      // ── Check MongoDB storage quota ────────────────────────────────────────
       if (user.storageUsed + f.size > user.storageLimit) {
         fs.unlinkSync(f.path);
         skipped.push({ originalName: f.originalname, reason: "Storage quota exceeded." });
         continue;
       }
 
-      const fileHash = hashFile(f.path);
+      // ── Read file buffer for hash and Supabase upload ─────────────────────
+      const fileBuffer = fs.readFileSync(f.path);
+      const fileHash = hashBuffer(fileBuffer);
 
       const existingOwn = await File.findOne({ hash: fileHash, owner: req.user.id, isDeleted: false });
       if (existingOwn) {
@@ -177,6 +183,50 @@ const uploadFiles = async (req, res, next) => {
         continue;
       }
 
+      // ── Upload to Supabase ──────────────────────────────────────────────────
+      let storagePath = f.path.replace(/\\/g, "/");
+      let storageProvider = 'local';
+      let supabaseUrl = null;
+
+      try {
+        // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
+        const quotaCheck = await supabase.checkSupabaseQuota(
+          req.user.id.toString(),
+          f.size
+        );
+
+        if (!quotaCheck.hasQuota) {
+          const usedMB = (quotaCheck.used / (1024 * 1024)).toFixed(2);
+          const limitMB = (quotaCheck.quota / (1024 * 1024)).toFixed(0);
+          const remainingMB = (quotaCheck.remaining / (1024 * 1024)).toFixed(2);
+          
+          fs.unlinkSync(f.path);
+          skipped.push({
+            originalName: f.originalname,
+            reason: `Supabase quota exceeded. Used: ${usedMB} MB / ${limitMB} MB. Free: ${remainingMB} MB.`
+          });
+          continue; // Skip this file and move to next
+        }
+
+        // ── Upload to Supabase ──────────────────────────────────────────────
+        const result = await supabase.uploadFile(
+          req.user.id.toString(),
+          fileBuffer,
+          f.originalname,
+          f.mimetype
+        );
+        storagePath = result.path;
+        storageProvider = 'supabase';
+        supabaseUrl = result.url;
+        console.log(`[Supabase] Uploaded: ${f.originalname} -> ${result.path}`);
+      } catch (supabaseErr) {
+        console.warn('[Supabase] Upload failed, using local fallback:', supabaseErr.message);
+        // Keep local path as fallback
+        storagePath = f.path.replace(/\\/g, "/");
+        storageProvider = 'local';
+      }
+
+      // ── Continue with file creation ────────────────────────────────────────
       let imgMeta = {};
       let thumbPath = null;
       let thumbUrl = null;
@@ -198,8 +248,8 @@ const uploadFiles = async (req, res, next) => {
         originalName: f.originalname,
         mimetype: f.mimetype,
         size: f.size,
-        path: f.path.replace(/\\/g, "/"),
-        url: `/uploads/${req.user.id}/${f.filename}`,
+        path: storagePath,
+        url: supabaseUrl || `/uploads/${req.user.id}/${f.filename}`,
         thumbnailPath: thumbPath,
         thumbnailUrl: thumbUrl,
         owner: req.user.id,
@@ -210,6 +260,8 @@ const uploadFiles = async (req, res, next) => {
         metadata: imgMeta,
         scanStatus: "pending",
         starredBy: [],
+        storageProvider: storageProvider,
+        storagePath: storageProvider === 'supabase' ? storagePath : null,
       });
 
       await User.findByIdAndUpdate(req.user.id, {
@@ -217,8 +269,18 @@ const uploadFiles = async (req, res, next) => {
       });
       user.storageUsed += f.size;
 
+      // Clean up local file if uploaded to Supabase
+      if (storageProvider === 'supabase' && fs.existsSync(f.path)) {
+        fs.unlinkSync(f.path);
+      }
+
       await logAccess(fileDoc._id, req.user.id, "upload", req);
-      logActivity(req, req.user.id, "upload", { filename: f.originalname, size: f.size, mimetype: f.mimetype });
+      logActivity(req, req.user.id, "upload", { 
+        filename: f.originalname, 
+        size: f.size, 
+        mimetype: f.mimetype,
+        storage: storageProvider 
+      });
       uploaded.push(fileDoc);
     }
 
@@ -244,7 +306,7 @@ const uploadFiles = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  UPLOAD ENCRYPTED FILES (E2EE)
+//  UPLOAD ENCRYPTED FILES (E2EE) - SUPABASE ENABLED
 // ─────────────────────────────────────────────────────────────────────────────
 const uploadEncryptedFiles = async (req, res, next) => {
   try {
@@ -273,7 +335,8 @@ const uploadEncryptedFiles = async (req, res, next) => {
         continue;
       }
 
-      const fileHash = hashFile(f.path);
+      const fileBuffer = fs.readFileSync(f.path);
+      const fileHash = hashBuffer(fileBuffer);
 
       const existingOwn = await File.findOne({ hash: fileHash, owner: req.user.id, isDeleted: false });
       if (existingOwn) {
@@ -282,13 +345,54 @@ const uploadEncryptedFiles = async (req, res, next) => {
         continue;
       }
 
+      // ── Upload encrypted to Supabase ──────────────────────────────────────
+      let storagePath = f.path.replace(/\\/g, "/");
+      let storageProvider = 'local';
+      let supabaseUrl = null;
+
+      try {
+        // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
+        const quotaCheck = await supabase.checkSupabaseQuota(
+          req.user.id.toString(),
+          f.size
+        );
+
+        if (!quotaCheck.hasQuota) {
+          const usedMB = (quotaCheck.used / (1024 * 1024)).toFixed(2);
+          const limitMB = (quotaCheck.quota / (1024 * 1024)).toFixed(0);
+          const remainingMB = (quotaCheck.remaining / (1024 * 1024)).toFixed(2);
+          
+          fs.unlinkSync(f.path);
+          skipped.push({
+            originalName: originalName,
+            reason: `Supabase quota exceeded. Used: ${usedMB} MB / ${limitMB} MB. Free: ${remainingMB} MB.`
+          });
+          continue;
+        }
+
+        const result = await supabase.uploadFile(
+          req.user.id.toString(),
+          fileBuffer,
+          f.originalname,
+          f.mimetype
+        );
+        storagePath = result.path;
+        storageProvider = 'supabase';
+        supabaseUrl = result.url;
+        console.log(`[Supabase] Uploaded encrypted: ${originalName} -> ${result.path}`);
+      } catch (supabaseErr) {
+        console.warn('[Supabase] Upload failed, using local fallback:', supabaseErr.message);
+        storagePath = f.path.replace(/\\/g, "/");
+        storageProvider = 'local';
+      }
+
       const fileDoc = await File.create({
         filename: f.filename,
         originalName: originalName,
         mimetype: f.mimetype,
         size: f.size,
-        path: f.path.replace(/\\/g, "/"),
-        url: `/uploads/${req.user.id}/${f.filename}`,
+        path: storagePath,
+        url: supabaseUrl || `/uploads/${req.user.id}/${f.filename}`,
         owner: req.user.id,
         hash: fileHash,
         tags,
@@ -297,6 +401,8 @@ const uploadEncryptedFiles = async (req, res, next) => {
         encryptionIV: encryptionIV,
         scanStatus: "pending",
         starredBy: [],
+        storageProvider: storageProvider,
+        storagePath: storageProvider === 'supabase' ? storagePath : null,
       });
 
       await User.findByIdAndUpdate(req.user.id, {
@@ -304,8 +410,18 @@ const uploadEncryptedFiles = async (req, res, next) => {
       });
       user.storageUsed += f.size;
 
+      if (storageProvider === 'supabase' && fs.existsSync(f.path)) {
+        fs.unlinkSync(f.path);
+      }
+
       await logAccess(fileDoc._id, req.user.id, "upload", req);
-      logActivity(req, req.user.id, "upload", { filename: originalName, size: f.size, mimetype: f.mimetype, encrypted: isEncrypted });
+      logActivity(req, req.user.id, "upload", { 
+        filename: originalName, 
+        size: f.size, 
+        mimetype: f.mimetype, 
+        encrypted: isEncrypted,
+        storage: storageProvider 
+      });
       uploaded.push(fileDoc);
     }
 
@@ -490,7 +606,7 @@ const deleteFile = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  BULK DELETE (soft)
+//  BULK DELETE (soft) - WITH SUPABASE CLEANUP
 // ─────────────────────────────────────────────────────────────────────────────
 const bulkDelete = async (req, res, next) => {
   try {
@@ -500,12 +616,25 @@ const bulkDelete = async (req, res, next) => {
 
     const files = await File.find({ _id: { $in: ids }, owner: req.user.id, isDeleted: false });
     let totalSize = 0;
+    
     for (const f of files) {
+      // ── ✅ NEW: Delete from Supabase if stored there ──────────────────────
+      if (f.storageProvider === 'supabase' && f.storagePath) {
+        try {
+          await supabase.deleteFile(f.storagePath);
+          console.log(`[Supabase] Bulk deleted: ${f.storagePath}`);
+        } catch (err) {
+          console.warn('[Supabase] Failed to delete file during bulk operation:', err.message);
+          // Continue even if Supabase delete fails
+        }
+      }
+      
       f.isDeleted = true;
       f.deletedAt = new Date();
       await f.save();
       totalSize += f.size;
     }
+    
     if (totalSize > 0)
       await User.findByIdAndUpdate(req.user.id, { $inc: { storageUsed: -totalSize } });
 
@@ -531,15 +660,30 @@ const bulkDownload = async (req, res, next) => {
     const archive = archiver("zip", { zlib: { level: 5 } });
     archive.pipe(res);
     for (const f of files) {
-      if (f.path && fs.existsSync(f.path))
+      // For Supabase files, we need to download them first
+      if (f.storageProvider === 'supabase' && f.storagePath) {
+        try {
+          const signedUrl = await supabase.getSignedUrl(
+            f.owner.toString(),
+            f.storagePath,
+            300 // 5 minutes
+          );
+          const response = await fetch(signedUrl);
+          const buffer = await response.buffer();
+          archive.append(buffer, { name: f.originalName });
+        } catch (err) {
+          console.warn('[Supabase] Failed to download for bulk zip:', err.message);
+        }
+      } else if (f.path && fs.existsSync(f.path)) {
         archive.file(f.path, { name: f.originalName });
+      }
     }
     await archive.finalize();
   } catch (err) { next(err); }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DOWNLOAD SINGLE FILE
+//  DOWNLOAD SINGLE FILE (SUPABASE ENABLED)
 // ─────────────────────────────────────────────────────────────────────────────
 const downloadFile = async (req, res, next) => {
   try {
@@ -601,11 +745,32 @@ const downloadFile = async (req, res, next) => {
       }).catch(() => { });
     }
 
+    // ── Serve from Supabase if stored there ──────────────────────────────────
+    if (file.storageProvider === 'supabase' && file.storagePath) {
+      try {
+        const signedUrl = await supabase.getSignedUrl(
+          file.owner.toString(),
+          file.storagePath,
+          3600 // 1 hour expiry
+        );
+        // Redirect to signed URL
+        return res.redirect(signedUrl);
+      } catch (err) {
+        console.warn('[Supabase] Failed to get signed URL, falling back to local:', err.message);
+        // Fall through to local handling
+      }
+    }
+
+    // ── Local file serving ────────────────────────────────────────────────────
     if (!file.path || !fs.existsSync(file.path))
       return res.status(404).json({ success: false, message: "File data not found on disk." });
 
     await logAccess(file._id, req.user?.id, "download", req);
-    if (req.user) logActivity(req, req.user.id, "download", { filename: file.originalName, size: file.size });
+    if (req.user) logActivity(req, req.user.id, "download", { 
+      filename: file.originalName, 
+      size: file.size,
+      storage: file.storageProvider 
+    });
 
     const dispositionType = req.query.inline === "1" ? "inline" : "attachment";
     res.setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(file.originalName)}"`);
@@ -896,6 +1061,7 @@ const extractArchive = async (req, res, next) => {
         hash: hashFile(resolved),
         tags: ["extracted"],
         scanStatus: "pending",
+        storageProvider: 'local',
       });
       await User.findByIdAndUpdate(req.user.id, { $inc: { storageUsed: stat.size } });
       createdFiles.push(doc);
@@ -1044,8 +1210,14 @@ const restoreFile = async (req, res, next) => {
   try {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id, isDeleted: true });
     if (!file) return res.status(404).json({ success: false, message: "File not found in trash." });
-    if (!file.isDedup && !fs.existsSync(file.path))
+    
+    // Check if file exists (local or Supabase)
+    if (file.storageProvider === 'supabase' && file.storagePath) {
+      // Supabase file - we don't need to check local filesystem
+      // Just restore the metadata
+    } else if (!file.isDedup && !fs.existsSync(file.path)) {
       return res.status(400).json({ success: false, message: "File data no longer exists on disk." });
+    }
 
     file.isDeleted = false;
     file.deletedAt = null;
@@ -1061,27 +1233,64 @@ const restoreFile = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  PERMANENT DELETE (SUPABASE ENABLED)
+// ─────────────────────────────────────────────────────────────────────────────
 const permanentDelete = async (req, res, next) => {
   try {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id });
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    if (!file.isDedup && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    if (file.thumbnailPath && fs.existsSync(file.thumbnailPath)) fs.unlinkSync(file.thumbnailPath);
+    // ── Delete from Supabase if stored there ─────────────────────────────────
+    if (file.storageProvider === 'supabase' && file.storagePath) {
+      try {
+        await supabase.deleteFile(file.storagePath);
+        console.log(`[Supabase] Deleted: ${file.storagePath}`);
+      } catch (err) {
+        console.warn('[Supabase] Failed to delete file:', err.message);
+      }
+    }
+
+    // ── Delete local files ────────────────────────────────────────────────────
+    if (!file.isDedup && file.path && fs.existsSync(file.path)) {
+      fs.unlinkSync(file.path);
+    }
+    if (file.thumbnailPath && fs.existsSync(file.thumbnailPath)) {
+      fs.unlinkSync(file.thumbnailPath);
+    }
     await File.findByIdAndDelete(file._id);
 
     return res.json({ success: true, message: "File permanently deleted." });
   } catch (err) { next(err); }
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  EMPTY TRASH - WITH SUPABASE CLEANUP
+// ─────────────────────────────────────────────────────────────────────────────
 const emptyTrash = async (req, res, next) => {
   try {
     const files = await File.find({ owner: req.user.id, isDeleted: true });
     let removed = 0;
+    
     for (const file of files) {
       try {
-        if (!file.isDedup && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
-        if (file.thumbnailPath && fs.existsSync(file.thumbnailPath)) fs.unlinkSync(file.thumbnailPath);
+        // ── ✅ NEW: Delete from Supabase ─────────────────────────────────────
+        if (file.storageProvider === 'supabase' && file.storagePath) {
+          try {
+            await supabase.deleteFile(file.storagePath);
+            console.log(`[Supabase] Emptied trash: ${file.storagePath}`);
+          } catch (err) {
+            console.warn('[Supabase] Failed to delete file during empty trash:', err.message);
+          }
+        }
+
+        // ── Delete local files ──────────────────────────────────────────────
+        if (!file.isDedup && file.path && fs.existsSync(file.path)) {
+          fs.unlinkSync(file.path);
+        }
+        if (file.thumbnailPath && fs.existsSync(file.thumbnailPath)) {
+          fs.unlinkSync(file.thumbnailPath);
+        }
         await File.findByIdAndDelete(file._id);
         removed++;
       } catch { }
@@ -1156,7 +1365,6 @@ const uploadFromUrl = async (req, res, next) => {
 
     // ─── 🛡️ Magic‑byte validation ───
     const detected = await fileTypeFromFile(destPath);
-    // Allowed MIME types (same as in upload middleware)
     const ALLOWED_TYPES = new Set([
       "image/jpeg","image/png","image/gif","image/webp","image/svg+xml",
       "application/pdf","application/msword",
@@ -1205,13 +1413,53 @@ const uploadFromUrl = async (req, res, next) => {
       } catch { }
     }
 
+    // ── Upload to Supabase ──────────────────────────────────────────────────
+    let storagePath = destPath.replace(/\\/g, "/");
+    let storageProvider = 'local';
+    let supabaseUrl = null;
+
+    try {
+      // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
+      const quotaCheck = await supabase.checkSupabaseQuota(
+        req.user.id.toString(),
+        buffer.length
+      );
+
+      if (!quotaCheck.hasQuota) {
+        const usedMB = (quotaCheck.used / (1024 * 1024)).toFixed(2);
+        const limitMB = (quotaCheck.quota / (1024 * 1024)).toFixed(0);
+        const remainingMB = (quotaCheck.remaining / (1024 * 1024)).toFixed(2);
+        
+        fs.unlinkSync(destPath);
+        return res.status(400).json({
+          success: false,
+          message: `Supabase quota exceeded. Used: ${usedMB} MB / ${limitMB} MB. Free: ${remainingMB} MB.`
+        });
+      }
+
+      const result = await supabase.uploadFile(
+        req.user.id.toString(),
+        buffer,
+        safeName,
+        contentType
+      );
+      storagePath = result.path;
+      storageProvider = 'supabase';
+      supabaseUrl = result.url;
+      console.log(`[Supabase] Uploaded from URL: ${safeName} -> ${result.path}`);
+    } catch (supabaseErr) {
+      console.warn('[Supabase] Upload from URL failed, using local fallback:', supabaseErr.message);
+      storagePath = destPath.replace(/\\/g, "/");
+      storageProvider = 'local';
+    }
+
     const fileDoc = await File.create({
       filename: generatedFilename,
       originalName: safeName,
       mimetype: contentType,
       size: buffer.length,
-      path: destPath.replace(/\\/g, "/"),
-      url: `/uploads/${req.user.id}/${generatedFilename}`,
+      path: storagePath,
+      url: supabaseUrl || `/uploads/${req.user.id}/${generatedFilename}`,
       thumbnailPath: thumbPath,
       thumbnailUrl: thumbUrl,
       owner: req.user.id,
@@ -1226,9 +1474,16 @@ const uploadFromUrl = async (req, res, next) => {
       }),
       metadata: imgMeta,
       scanStatus: "pending",
+      storageProvider: storageProvider,
+      storagePath: storageProvider === 'supabase' ? storagePath : null,
     });
 
     await User.findByIdAndUpdate(req.user.id, { $inc: { storageUsed: buffer.length, uploadCount: 1 } });
+    
+    if (storageProvider === 'supabase' && fs.existsSync(destPath)) {
+      fs.unlinkSync(destPath);
+    }
+
     await logAccess(fileDoc._id, req.user.id, "upload", req);
     emitActivity(req.user.id, "upload", { count: 1, files: [{ id: fileDoc._id, name: fileDoc.originalName, size: fileDoc.size }] }, io);
 
@@ -1300,6 +1555,6 @@ module.exports = {
   restoreFile,
   permanentDelete,
   emptyTrash,
-  uploadFromUrl,          //  SSRF + MIME magic‑byte fixed
+  uploadFromUrl,
   createShareLink,
 };
