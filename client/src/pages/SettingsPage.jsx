@@ -3,13 +3,15 @@ import {
   Settings, User, Lock, Bell, Webhook, Shield, Monitor, Sun, Moon,
   Loader2, CheckCircle2, Eye, EyeOff, Save, Trash2,
   Mail, Download, Key, Smartphone, LogOut, AlertTriangle,
+  X,  // ← add this
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react"; // npm install qrcode.react
 import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import toast from "react-hot-toast";
 import EmailVerificationBanner from "../components/EmailVerificationBanner";
-import WebhooksTab              from "../components/WebhooksTab";
+import WebhooksTab from "../components/WebhooksTab";
 import DeviceManagement from "../components/DeviceManagement";
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -66,14 +68,13 @@ function Toggle({ label, description, value, onChange }) {
 //  Profile Tab
 // ─────────────────────────────────────────────────────────────────────────────
 function ProfileTab({ user, refreshUser }) {
-  const [form,         setForm]         = useState({ displayName: user?.displayName || "", bio: user?.bio || "" });
-  const [saving,       setSaving]       = useState(false);
+  const [form, setForm] = useState({ displayName: user?.displayName || "", bio: user?.bio || "" });
+  const [saving, setSaving] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
-  const [exporting,    setExporting]    = useState(false);
-  const [avatarPreview,setAvatarPreview]= useState(user?.avatarUrl || user?.avatar || null);
+  const [exporting, setExporting] = useState(false);
+  const [avatarPreview, setAvatarPreview] = useState(user?.avatarUrl || user?.avatar || null);
   const fileInputRef = useRef(null);
 
-  // BUG FIX: compress image client-side then upload as base64 avatarUrl
   const handleAvatarChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -83,22 +84,17 @@ function ProfileTab({ user, refreshUser }) {
     reader.onload = (ev) => {
       const img = new Image();
       img.onload = async () => {
-        // Compress to 200×200 circle-safe square
         const SIZE = 200;
         const canvas = document.createElement("canvas");
-        canvas.width  = SIZE;
+        canvas.width = SIZE;
         canvas.height = SIZE;
         const ctx = canvas.getContext("2d");
-
-        // Centre-crop
         const srcSize = Math.min(img.width, img.height);
-        const sx = (img.width  - srcSize) / 2;
+        const sx = (img.width - srcSize) / 2;
         const sy = (img.height - srcSize) / 2;
         ctx.drawImage(img, sx, sy, srcSize, srcSize, 0, 0, SIZE, SIZE);
-
         const base64 = canvas.toDataURL("image/jpeg", 0.88);
         setAvatarPreview(base64);
-
         setAvatarSaving(true);
         try {
           await api.put("/api/users/me", { avatarUrl: base64 });
@@ -138,7 +134,6 @@ function ProfileTab({ user, refreshUser }) {
       const disposition = response.headers["content-disposition"] || "";
       const filenameMatch = disposition.match(/filename=([^;]+)/i);
       const filename = filenameMatch?.[1]?.replace(/"/g, "") || `vaultfs-export-${Date.now()}.json`;
-
       link.href = url;
       link.download = filename;
       document.body.appendChild(link);
@@ -156,7 +151,6 @@ function ProfileTab({ user, refreshUser }) {
   return (
     <div className="space-y-4">
       <Section title="Profile" description="Your public display information.">
-        {/* BUG FIX: circular avatar with upload click + spinner overlay */}
         <div className="flex items-center gap-4 mb-2">
           <div className="relative flex-shrink-0">
             <button
@@ -173,7 +167,6 @@ function ProfileTab({ user, refreshUser }) {
                   </span>
                 </div>
               )}
-              {/* Hover overlay */}
               <div className="absolute inset-0 bg-black/40 rounded-full opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
                 {avatarSaving
                   ? <Loader2 size={16} className="text-white animate-spin" />
@@ -201,21 +194,18 @@ function ProfileTab({ user, refreshUser }) {
             </p>
           </div>
         </div>
-
         <div className="space-y-3">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Display Name</label>
             <input className="input" value={form.displayName} onChange={(e) => setForm((p) => ({ ...p, displayName: e.target.value }))} />
           </div>
         </div>
-
         <button onClick={save} disabled={saving} className="btn-primary px-5 py-2">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
           Save Profile
         </button>
       </Section>
 
-      {/* Export / GDPR */}
       <Section title="Data & Privacy" description="Export or delete your account data.">
         <div className="space-y-3">
           <div className="flex items-center justify-between">
@@ -231,7 +221,6 @@ function ProfileTab({ user, refreshUser }) {
               <Download size={13} /> {exporting ? "Exporting..." : "Export"}
             </button>
           </div>
-
           <div className="border-t border-surface-3 pt-3 flex items-center justify-between">
             <div>
               <p className="text-sm text-accent-red">Delete Account</p>
@@ -255,12 +244,18 @@ function ProfileTab({ user, refreshUser }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  Security Tab
+//  Security Tab (with full 2FA management)
 // ─────────────────────────────────────────────────────────────────────────────
-function SecurityTab({ user }) {
+function SecurityTab({ user, refreshUser }) {
   const [pwForm, setPwForm] = useState({ currentPassword: "", newPassword: "", confirm: "" });
   const [showPw, setShowPw] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // 2FA states
+  const [showSetupModal, setShowSetupModal] = useState(false);
+  const [showDisableModal, setShowDisableModal] = useState(false);
+  const [disableToken, setDisableToken] = useState("");
+  const [twoFALoading, setTwoFALoading] = useState(false);
 
   const changePassword = async () => {
     if (!pwForm.currentPassword || !pwForm.newPassword) return toast.error("All fields required.");
@@ -271,7 +266,7 @@ function SecurityTab({ user }) {
     try {
       await api.put("/api/auth/change-password", {
         currentPassword: pwForm.currentPassword,
-        newPassword:     pwForm.newPassword,
+        newPassword: pwForm.newPassword,
       });
       toast.success("Password changed.");
       setPwForm({ currentPassword: "", newPassword: "", confirm: "" });
@@ -279,6 +274,27 @@ function SecurityTab({ user }) {
       toast.error(err.response?.data?.message || "Failed to change password.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleEnable2FA = () => setShowSetupModal(true);
+
+  const handleDisable2FA = async () => {
+    if (!disableToken || disableToken.length !== 6) {
+      toast.error("Please enter a valid 6-digit code.");
+      return;
+    }
+    setTwoFALoading(true);
+    try {
+      await api.post("/api/auth/2fa/disable", { token: disableToken });
+      toast.success("2FA disabled.");
+      setShowDisableModal(false);
+      setDisableToken("");
+      refreshUser(); // refresh user data to reflect change
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Invalid code.");
+    } finally {
+      setTwoFALoading(false);
     }
   };
 
@@ -312,7 +328,7 @@ function SecurityTab({ user }) {
         </div>
       </Section>
 
-      {/* 2FA status display */}
+      {/* 2FA Section with interactive controls */}
       <Section title="Two-Factor Authentication" description="Add an extra layer of security.">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -324,16 +340,56 @@ function SecurityTab({ user }) {
               <p className="text-xs text-gray-500">{user?.twoFactorEnabled ? "Enabled — 2FA is protecting your account" : "Not enabled"}</p>
             </div>
           </div>
-          <span className={`badge text-xs ${user?.twoFactorEnabled ? "bg-emerald-900/20 text-emerald-400 border-emerald-900/30" : "bg-surface-3 text-gray-500 border-surface-4"}`}>
-            {user?.twoFactorEnabled ? "Active" : "Disabled"}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`badge text-xs ${user?.twoFactorEnabled ? "bg-emerald-900/20 text-emerald-400 border-emerald-900/30" : "bg-surface-3 text-gray-500 border-surface-4"}`}>
+              {user?.twoFactorEnabled ? "Active" : "Disabled"}
+            </span>
+            {user?.twoFactorEnabled ? (
+              <button onClick={() => setShowDisableModal(true)} className="btn-ghost text-xs px-3 py-1.5 text-accent-red">
+                Disable
+              </button>
+            ) : (
+              <button onClick={handleEnable2FA} className="btn-primary text-xs px-3 py-1.5">
+                Enable 2FA
+              </button>
+            )}
+          </div>
         </div>
         <p className="text-xs text-gray-600">
-          To manage 2FA, use the authenticator section in your account settings or during login.
+          Use an authenticator app like Google Authenticator, Authy, or Microsoft Authenticator to generate time-based codes.
         </p>
       </Section>
 
-      {/* Active sessions placeholder */}
+      {/* 2FA Enable Modal */}
+      {showSetupModal && <TwoFactorSetupModal onClose={() => setShowSetupModal(false)} onEnabled={refreshUser} />}
+
+      {/* 2FA Disable Modal */}
+      {showDisableModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setShowDisableModal(false)}>
+          <div className="bg-surface-1 border border-surface-4 rounded-2xl p-6 max-w-sm w-full shadow-2xl animate-fade-up" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-display font-bold text-white mb-2">Disable 2FA</h3>
+            <p className="text-sm text-gray-400 mb-4">Enter your current authenticator code to confirm.</p>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="6-digit code"
+              className="input text-center text-xl tracking-[0.5em] font-mono w-full mb-4"
+              value={disableToken}
+              onChange={(e) => setDisableToken(e.target.value.replace(/\D/g, ""))}
+            />
+            <div className="flex gap-3">
+              <button onClick={() => { setShowDisableModal(false); setDisableToken(""); }} className="btn-ghost flex-1">
+                Cancel
+              </button>
+              <button onClick={handleDisable2FA} disabled={twoFALoading || disableToken.length !== 6} className="btn-danger flex-1 justify-center">
+                {twoFALoading ? <Loader2 size={14} className="animate-spin" /> : "Disable"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Section title="Sessions" description="You are logged in on this device.">
         <div className="flex items-center gap-3 p-3 bg-surface-2 rounded-lg border border-brand/20">
           <div className="w-8 h-8 rounded-lg bg-brand/15 border border-brand/25 flex items-center justify-center">
@@ -352,9 +408,98 @@ function SecurityTab({ user }) {
         </div>
       </Section>
 
-      {/* Device Management - Added after Sessions section */}
       <div className="mt-6">
         <DeviceManagement />
+      </div>
+    </div>
+  );
+}
+
+// ── TwoFactorSetupModal (QR + verification) ──────────────────────────────────
+function TwoFactorSetupModal({ onClose, onEnabled }) {
+  const [step, setStep] = useState("init"); // init | qr | verify
+  const [secret, setSecret] = useState("");
+  const [qrCode, setQrCode] = useState("");
+  const [token, setToken] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSetup = async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.post("/api/auth/2fa/setup");
+      setSecret(data.secret);
+      setQrCode(data.qrCode);
+      setStep("qr");
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Failed to set up 2FA.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerify = async () => {
+    if (!token || token.length !== 6) {
+      toast.error("Please enter a valid 6-digit code.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await api.post("/api/auth/2fa/verify", { token });
+      toast.success("2FA enabled successfully!");
+      onEnabled();
+      onClose();
+    } catch (err) {
+      toast.error(err.response?.data?.message || "Invalid code. Try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-surface-1 border border-surface-4 rounded-2xl max-w-md w-full p-6 shadow-2xl animate-fade-up" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-display font-bold text-white text-lg flex items-center gap-2">
+            <Shield size={20} className="text-brand-glow" /> Two-Factor Authentication
+          </h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-white"><X size={18} /></button>
+        </div>
+
+        {step === "init" && (
+          <div className="text-center py-4">
+            <Smartphone size={48} className="mx-auto text-gray-500 mb-4" />
+            <p className="text-gray-400 mb-4">Enable 2FA to add an extra layer of security.</p>
+            <button onClick={handleSetup} disabled={loading} className="btn-primary w-full justify-center">
+              {loading ? <Loader2 size={16} className="animate-spin" /> : null}
+              {loading ? "Setting up..." : "Set up 2FA"}
+            </button>
+          </div>
+        )}
+
+        {step === "qr" && (
+          <div className="text-center">
+            <p className="text-gray-400 text-sm mb-2">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+            <div className="bg-white p-3 rounded-lg inline-block mx-auto mb-4">
+              <QRCodeSVG value={qrCode} size={200} />
+            </div>
+            <p className="text-xs text-gray-500 break-all mb-2">Secret: <span className="font-mono">{secret}</span></p>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="Enter 6-digit code"
+              className="input text-center text-xl tracking-[0.5em] font-mono w-48 mx-auto mb-4"
+              value={token}
+              onChange={(e) => setToken(e.target.value.replace(/\D/g, ""))}
+            />
+            <div className="flex gap-3">
+              <button onClick={() => setStep("init")} className="btn-ghost flex-1">Back</button>
+              <button onClick={handleVerify} disabled={loading || token.length !== 6} className="btn-primary flex-1 justify-center">
+                {loading ? <Loader2 size={16} className="animate-spin" /> : "Verify & Enable"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -364,7 +509,7 @@ function SecurityTab({ user }) {
 //  Notifications Tab
 // ─────────────────────────────────────────────────────────────────────────────
 function NotificationsTab({ user, refreshUser }) {
-  const [prefs,  setPrefs]  = useState({
+  const [prefs, setPrefs] = useState({
     emailOnDownload:       user?.notificationPrefs?.emailOnDownload       ?? false,
     emailOnShare:          user?.notificationPrefs?.emailOnShare          ?? true,
     emailOnFileRequest:    user?.notificationPrefs?.emailOnFileRequest    ?? true,
@@ -426,6 +571,9 @@ function NotificationsTab({ user, refreshUser }) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+//  Appearance Tab
+// ─────────────────────────────────────────────────────────────────────────────
 function AppearanceTab() {
   const { theme, setTheme, resolvedTheme } = useTheme();
 
@@ -501,14 +649,12 @@ const TABS = [
 
 export default function SettingsPage() {
   const { user, refreshUser } = useAuth();
-  const [activeTab, setTab]   = useState("profile");
+  const [activeTab, setTab] = useState("profile");
 
   return (
     <div className="p-6 max-w-4xl mx-auto space-y-5">
-      {/* Email verification banner */}
       <EmailVerificationBanner />
 
-      {/* Header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-brand/15 border border-brand/25 flex items-center justify-center">
           <Settings size={16} className="text-brand-glow" />
@@ -520,7 +666,6 @@ export default function SettingsPage() {
       </div>
 
       <div className="flex gap-6">
-        {/* Sidebar tabs */}
         <nav className="w-44 flex-shrink-0 space-y-0.5">
           {TABS.map(({ id, label, icon: Icon }) => (
             <button
@@ -538,10 +683,9 @@ export default function SettingsPage() {
           ))}
         </nav>
 
-        {/* Tab content */}
         <div className="flex-1 min-w-0 animate-fade-up">
           {activeTab === "profile"       && <ProfileTab       user={user} refreshUser={refreshUser} />}
-          {activeTab === "security"      && <SecurityTab      user={user} />}
+          {activeTab === "security"      && <SecurityTab      user={user} refreshUser={refreshUser} />}
           {activeTab === "appearance"    && <AppearanceTab />}
           {activeTab === "notifications" && <NotificationsTab user={user} refreshUser={refreshUser} />}
           {activeTab === "webhooks"      && <WebhooksTab />}

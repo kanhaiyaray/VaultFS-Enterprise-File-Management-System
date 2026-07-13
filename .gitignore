@@ -121,3 +121,9 @@ coverage/
 *.bak
 *.old
 *.orig
+
+# =========================
+# Project‑specific additions
+# =========================
+server/backups/
+.supabase/

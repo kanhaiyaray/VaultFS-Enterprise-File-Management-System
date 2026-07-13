@@ -43,19 +43,25 @@ export function BrandingProvider({ children }) {
   const pathname = typeof window !== "undefined" ? window.location.pathname : "";
   const allowDuringMaintenance = pathname.startsWith("/admin");
 
+  // ── Improved fetch with error handling ──────────────────────────────────────
   useEffect(() => {
-    // ✅ Add cache-busting timestamp to avoid stale config
     fetch(`/api/branding?_t=${Date.now()}`, {
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache'
       }
     })
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error(`HTTP error! status: ${r.status}`);
+        return r.json();
+      })
       .then(({ branding: b }) => {
         if (b) setBranding({ ...DEFAULT_BRANDING, ...b });
       })
-      .catch(() => {}) // silently fallback to defaults
+      .catch((err) => {
+        console.warn('[Branding] Failed to fetch branding:', err.message);
+        // keep fallback defaults
+      })
       .finally(() => setLoading(false));
   }, []);
 

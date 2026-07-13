@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, Github, Chrome, Shield, AlertTriangle } from "lucide-react";
+import { Zap, Mail, Lock, Eye, EyeOff, Loader2, AlertCircle, GitBranch, Globe, Shield, AlertTriangle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import api from "../utils/api";
 import toast from "react-hot-toast";
@@ -8,18 +8,18 @@ import { getDeviceFingerprint, getDeviceInfo } from "../utils/deviceFingerprint"
 
 export default function LoginPage() {
   const { login } = useAuth();
-  const navigate   = useNavigate();
-  const [params]   = useSearchParams();
+  const navigate = useNavigate();
+  const [params] = useSearchParams();
 
-  const [email,    setEmail]    = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [showPw,   setShowPw]   = useState(false);
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   // 2FA state
   const [requires2FA, setRequires2FA] = useState(false);
-  const [twoFAToken,  setTwoFAToken]  = useState("");
+  const [twoFAToken, setTwoFAToken] = useState("");
   const [pendingData, setPendingData] = useState(null);
 
   // Suspicious login state
@@ -33,15 +33,15 @@ export default function LoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
-    
+
     try {
       // Get device fingerprint and info for security
       const fingerprint = await getDeviceFingerprint();
       const deviceInfo = getDeviceInfo();
-      
+
       // Call login with fingerprint data
       const data = await login(email, password, fingerprint, deviceInfo);
-      
+
       if (data.requires2FA) {
         setPendingData(data);
         setRequires2FA(true);
@@ -70,7 +70,7 @@ export default function LoginPage() {
     try {
       const { data } = await api.post("/api/auth/2fa/verify-login", {
         userId: pendingData?.userId,
-        token:  twoFAToken,
+        token: twoFAToken,
       });
       localStorage.setItem("token", data.token);
       toast.success("2FA verified successfully!");
@@ -90,7 +90,7 @@ export default function LoginPage() {
         token: suspiciousToken,
         confirm: true
       });
-      
+
       localStorage.setItem("token", data.token);
       toast.success("Device verified! You can now access your account.");
       window.location.href = "/dashboard";
@@ -209,14 +209,15 @@ export default function LoginPage() {
                   href={getOAuthUrl("google")}
                   className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-surface-4 bg-surface-2 text-sm text-gray-300 hover:bg-surface-3 hover:text-white transition-all"
                 >
-                  <Chrome size={15} />
+                  {/* ✅ Use Globe instead of Chrome */}
+                  <Globe size={15} />
                   Google
                 </a>
                 <a
                   href={getOAuthUrl("github")}
                   className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-surface-4 bg-surface-2 text-sm text-gray-300 hover:bg-surface-3 hover:text-white transition-all"
                 >
-                  <Github size={15} />
+                  + <GitBranch size={15} />
                   GitHub
                 </a>
               </div>
@@ -290,7 +291,7 @@ export default function LoginPage() {
                 <p className="text-xs text-gray-500">We noticed unusual activity</p>
               </div>
             </div>
-            
+
             <div className="p-5 space-y-4">
               <p className="text-sm text-gray-300">
                 We detected the following security concerns:
@@ -305,20 +306,20 @@ export default function LoginPage() {
               </ul>
               <div className="p-3 bg-amber-900/10 border border-amber-900/20 rounded-lg">
                 <p className="text-xs text-amber-300/80 leading-relaxed">
-                  For your security, we've blocked this login attempt. 
-                  If this was you, please verify your identity below. 
+                  For your security, we've blocked this login attempt.
+                  If this was you, please verify your identity below.
                   A verification email has been sent to your registered email address.
                 </p>
               </div>
               <div className="flex gap-3 pt-2">
-                <button 
-                  onClick={() => setShowSuspiciousModal(false)} 
+                <button
+                  onClick={() => setShowSuspiciousModal(false)}
                   className="btn-ghost flex-1"
                 >
                   Cancel
                 </button>
-                <button 
-                  onClick={handleVerifySuspicious} 
+                <button
+                  onClick={handleVerifySuspicious}
                   disabled={loading}
                   className="btn-primary flex-1 justify-center"
                 >

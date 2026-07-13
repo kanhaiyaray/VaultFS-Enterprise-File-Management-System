@@ -355,27 +355,40 @@ const forgotPassword = async (req, res, next) => {
     const { email } = req.body;
     if (!email) return res.status(400).json({ success: false, message: "Email is required." });
 
-    const okMsg = "If an account with that email exists, a reset link has been sent.";
+    const successMsg = "If an account exists with this email, a reset link has been sent.";
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) return res.json({ success: true, message: okMsg });
 
+    // Always respond with success to prevent email enumeration
+    if (!user) return res.json({ success: true, message: successMsg });
+
+    // Invalidate old tokens
     await PasswordReset.deleteMany({ userId: user._id });
 
-    const rawToken = crypto.randomBytes(32).toString("hex");
+    const rawToken  = crypto.randomBytes(32).toString("hex");
     const hashedTok = crypto.createHash("sha256").update(rawToken).digest("hex");
 
     await PasswordReset.create({
-      userId: user._id,
-      token: hashedTok,
-      expiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000),
+      userId:    user._id,
+      token:     hashedTok,
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
     });
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}&id=${user._id}`;
-    const mail = emails.forgotPassword(user.displayName || user.username, resetUrl);
-    await sendMail({ to: user.email, ...mail });
 
-    return res.json({ success: true, message: okMsg });
-  } catch (err) { next(err); }
+    // ── 🛡️ Wrap email sending in try/catch to prevent 500 ──
+    try {
+      const mail = emails.forgotPassword(user.displayName || user.username, resetUrl);
+      await sendMail({ to: user.email, ...mail });
+    } catch (emailErr) {
+      // Log the error server-side so you can debug it later
+      console.error("[forgotPassword] Email sending failed:", emailErr.message);
+      // Still return success to the client – we don't want to leak that the email failed
+    }
+
+    res.json({ success: true, message: successMsg });
+  } catch (err) {
+    next(err);
+  }
 };
 
 // ── POST /api/auth/reset-password ─────────────────────────────────────────────

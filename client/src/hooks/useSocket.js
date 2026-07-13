@@ -6,7 +6,7 @@
 import { useEffect, useRef } from "react";
 import { io } from "socket.io-client";
 
-let _socket = null; // Module-level singleton
+let _socket = null;
 let reconnectAttempts = 0;
 
 function getSocket() {
@@ -19,7 +19,7 @@ function getSocket() {
       reconnectionDelay: 2000,
       reconnectionDelayMax: 10000,
     });
-    
+
     _socket.on("reconnect_attempt", () => {
       reconnectAttempts++;
       const newToken = localStorage.getItem("token");
@@ -27,7 +27,7 @@ function getSocket() {
         _socket.auth = { token: newToken };
       }
     });
-    
+
     _socket.on("reconnect", () => {
       reconnectAttempts = 0;
     });
@@ -38,10 +38,39 @@ function getSocket() {
 export function useSocket() {
   const socketRef = useRef(null);
 
+  // ── Handle bfcache ──────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handlePageHide = () => {
+      // Gracefully close the socket before the page is cached
+      if (_socket && _socket.connected) {
+        _socket.disconnect();
+      }
+    };
+
+    const handlePageShow = (event) => {
+      // If the page was restored from bfcache, reconnect if needed
+      if (event.persisted) {
+        const socket = getSocket();
+        if (socket && socket.disconnected) {
+          socket.connect();
+        }
+      }
+    };
+
+    window.addEventListener("pagehide", handlePageHide);
+    window.addEventListener("pageshow", handlePageShow);
+
+    return () => {
+      window.removeEventListener("pagehide", handlePageHide);
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, []);
+
+  // ── Existing socket instance ──────────────────────────────────────────────
   useEffect(() => {
     socketRef.current = getSocket();
     return () => {
-      // Don't automatically disconnect on unmount — but allow manual disconnect
+      // Don't disconnect on unmount; keep singleton alive
     };
   }, []);
 
