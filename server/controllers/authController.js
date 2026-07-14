@@ -10,7 +10,7 @@ const Device = require('../models/Device');
 const UAParser = require('ua-parser-js');
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
-const crypto = require("crypto");                     
+const crypto = require("crypto");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 
@@ -191,47 +191,54 @@ const register = async (req, res, next) => {
   } catch (err) { next(err); }
 };
 
-// ── POST /api/auth/login (ENHANCED with device fingerprinting) ────────────────
+// ── POST /api/auth/login ── UPDATED: support email OR username ──────────────
 const login = async (req, res, next) => {
   try {
     const { email, password, fingerprint, deviceInfo } = req.body;
-    
-    if (!email || !password) {
-      return res.status(400).json({ success: false, message: "Email and password are required." });
+
+    // identifier can be email or username
+    const identifier = email?.trim();
+    if (!identifier || !password) {
+      return res.status(400).json({ success: false, message: "Email/username and password are required." });
     }
-    
-    const user = await User.findOne({ email: email.toLowerCase() }).select("+password +twoFactorSecret");
+
+    // Build query: match either email (case-insensitive) or username (case-insensitive exact)
+    const escapedIdentifier = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const query = {
+      $or: [
+        { email: identifier.toLowerCase() },
+        { username: { $regex: new RegExp(`^${escapedIdentifier}$`, 'i') } }
+      ]
+    };
+
+    const user = await User.findOne(query).select("+password +twoFactorSecret");
     if (!user || !user.password) {
-      return res.status(401).json({ success: false, message: "Invalid email or password." });
+      return res.status(401).json({ success: false, message: "Invalid email/username or password." });
     }
-    
+
     const match = await user.comparePassword(password);
     if (!match) {
-      return res.status(401).json({ success: false, message: "Invalid email or password." });
+      return res.status(401).json({ success: false, message: "Invalid email/username or password." });
     }
-    
+
     if (user.isBanned) {
       return res.status(403).json({ success: false, message: user.banReason || "Account suspended." });
     }
-    
+
     const ipAddress = req.ip || req.headers['x-forwarded-for'] || 'unknown';
     const suspicion = await detectSuspiciousLogin(user, fingerprint, deviceInfo, ipAddress);
-    
-    // If suspicious, require verification
+
     if (suspicion.isSuspicious) {
-      // IMPORTANT: Include fingerprint in the token for device identification
       const suspiciousToken = jwt.sign(
         { 
           id: user._id, 
           reason: suspicion.reasons,
-          fingerprint: fingerprint  // ✅ ADDED: Include fingerprint for device verification
+          fingerprint: fingerprint
         },
         process.env.JWT_SECRET,
         { expiresIn: "30m" }
       );
-      
       await sendSuspiciousLoginEmail(user, suspicion.reasons, ipAddress, deviceInfo);
-      
       return res.status(403).json({
         success: false,
         requiresVerification: true,
@@ -240,18 +247,18 @@ const login = async (req, res, next) => {
         reasons: suspicion.reasons
       });
     }
-    
+
     // 2FA check
     if (user.twoFactorEnabled) {
       const tempToken = jwt.sign({ id: user._id, pending2FA: true }, process.env.JWT_SECRET, { expiresIn: "10m" });
       return res.json({ success: true, requires2FA: true, userId: user._id, tempToken });
     }
-    
+
     user.lastLoginAt = new Date();
     user.lastLoginIp = req.ip;
     await user.save();
     logActivity(req, user._id, "login", { email: user.email });
-    
+
     const token = signToken(user._id);
     return res.json({ success: true, token, user: sanitizeUser(user) });
   } catch (err) { next(err); }
@@ -358,10 +365,8 @@ const forgotPassword = async (req, res, next) => {
     const successMsg = "If an account exists with this email, a reset link has been sent.";
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
-    // Always respond with success to prevent email enumeration
     if (!user) return res.json({ success: true, message: successMsg });
 
-    // Invalidate old tokens
     await PasswordReset.deleteMany({ userId: user._id });
 
     const rawToken  = crypto.randomBytes(32).toString("hex");
@@ -370,19 +375,16 @@ const forgotPassword = async (req, res, next) => {
     await PasswordReset.create({
       userId:    user._id,
       token:     hashedTok,
-      expiresAt: new Date(Date.now() + 60 * 60 * 1000), // 1 hour
+      expiresAt: new Date(Date.now() + 60 * 60 * 1000),
     });
 
     const resetUrl = `${process.env.CLIENT_URL}/reset-password?token=${rawToken}&id=${user._id}`;
 
-    // ── 🛡️ Wrap email sending in try/catch to prevent 500 ──
     try {
       const mail = emails.forgotPassword(user.displayName || user.username, resetUrl);
       await sendMail({ to: user.email, ...mail });
     } catch (emailErr) {
-      // Log the error server-side so you can debug it later
       console.error("[forgotPassword] Email sending failed:", emailErr.message);
-      // Still return success to the client – we don't want to leak that the email failed
     }
 
     res.json({ success: true, message: successMsg });

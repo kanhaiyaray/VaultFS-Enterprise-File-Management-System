@@ -1,53 +1,48 @@
 /**
  * utils/sendMail.js
- * Thin wrapper around nodemailer for VaultFS transactional emails.
- *
+ * VaultFS email sender using Resend API.
+ * 
  * Usage:
  *   await sendMail({ to, subject, html })
  *   await sendMail({ to, subject, html, text })
  */
-const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
 
-// ── Lazy transporter — only created on first send ────────────────────────────
-let transporter = null;
+let resend = null;
 
-function getTransporter() {
-  if (transporter) return transporter;
-  transporter = nodemailer.createTransport({
-    host:   process.env.EMAIL_HOST   || "smtp.gmail.com",
-    port:   parseInt(process.env.EMAIL_PORT || "587", 10),
-    secure: process.env.EMAIL_SECURE === "true",
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-  return transporter;
+function getResend() {
+  if (!resend) {
+    resend = new Resend(process.env.RESEND_API_KEY);
+  }
+  return resend;
 }
 
 // ── sendMail ──────────────────────────────────────────────────────────────────
 async function sendMail({ to, subject, html, text }) {
-  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-    console.warn("[sendMail] EMAIL_USER / EMAIL_PASS not set — skipping email.");
+  if (!process.env.RESEND_API_KEY) {
+    console.warn('❌ RESEND_API_KEY not set – skipping email.');
     return;
   }
+
   try {
-    const info = await getTransporter().sendMail({
-      from:    process.env.EMAIL_FROM || `"VaultFS" <${process.env.EMAIL_USER}>`,
-      to,
+    const { data, error } = await getResend().emails.send({
+      from: process.env.EMAIL_FROM || 'VaultFS <onboarding@resend.dev>',
+      to: [to],
       subject,
       html,
-      text: text || html?.replace(/<[^>]+>/g, ""),  // plain-text fallback
+      text: text || html?.replace(/<[^>]+>/g, ''), // plain-text fallback
     });
-    console.log(`[sendMail] Sent to ${to}: ${info.messageId}`);
-    return info;
+
+    if (error) throw error;
+    console.log(`✅ Email sent to ${to}`);
+    return data;
   } catch (err) {
-    console.error("[sendMail] Failed:", err.message);
+    console.error('❌ Email failed:', err.message);
     throw err;
   }
 }
 
-// ── HTML email templates ──────────────────────────────────────────────────────
+// ── HTML email templates (unchanged) ────────────────────────────────────────
 const template = (body) => `
 <!DOCTYPE html>
 <html>
@@ -75,7 +70,7 @@ const btn = (text, url) =>
 const code = (text) =>
   `<div style="margin:16px 0;padding:12px 16px;background:#18181b;border:1px solid #3f3f46;border-radius:8px;font-family:monospace;font-size:15px;color:#a78bfa;letter-spacing:2px">${text}</div>`;
 
-// Email builders
+// Email builders (unchanged)
 const emails = {
   forgotPassword: (username, resetUrl) => ({
     subject: "Reset your VaultFS password",

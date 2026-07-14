@@ -35,24 +35,20 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      // Get device fingerprint and info for security
       const fingerprint = await getDeviceFingerprint();
       const deviceInfo = getDeviceInfo();
 
-      // Call login with fingerprint data
       const data = await login(email, password, fingerprint, deviceInfo);
 
       if (data.requires2FA) {
         setPendingData(data);
         setRequires2FA(true);
       } else if (data.requiresVerification) {
-        // Handle suspicious login
         setSuspiciousReasons(data.reasons || ["Suspicious activity detected"]);
         setSuspiciousToken(data.suspiciousToken);
         setShowSuspiciousModal(true);
       } else {
         toast.success(`Welcome back, ${data.user?.displayName || data.user?.username}!`);
-        // Admin users logging in via user portal → redirect to dashboard (they can navigate to /admin)
         navigate("/dashboard");
       }
     } catch (err) {
@@ -85,7 +81,6 @@ export default function LoginPage() {
   const handleVerifySuspicious = async () => {
     setLoading(true);
     try {
-      // Send verification request
       const { data } = await api.post("/api/auth/verify-suspicious", {
         token: suspiciousToken,
         confirm: true
@@ -102,10 +97,7 @@ export default function LoginPage() {
     }
   };
 
-  // Get base URL for OAuth - use empty string to leverage Vite proxy
   const getOAuthUrl = (provider) => {
-    // In development, Vite proxies /api to backend, so relative URLs work
-    // In production, we need absolute URL
     if (import.meta.env.PROD) {
       const apiUrl = import.meta.env.VITE_API_URL || "";
       return `${apiUrl}/api/auth/${provider}`;
@@ -147,15 +139,15 @@ export default function LoginPage() {
 
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Email</label>
+                  <label className="block text-xs font-medium text-gray-400 mb-1.5">Email or Username</label>
                   <div className="relative">
                     <Mail size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />
                     <input
-                      type="email"
+                      type="text"
                       required
                       autoFocus
                       className="input pl-9"
-                      placeholder="you@example.com"
+                      placeholder="you@example.com or username"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                     />
@@ -209,7 +201,6 @@ export default function LoginPage() {
                   href={getOAuthUrl("google")}
                   className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-surface-4 bg-surface-2 text-sm text-gray-300 hover:bg-surface-3 hover:text-white transition-all"
                 >
-                  {/* ✅ Use Globe instead of Chrome */}
                   <Globe size={15} />
                   Google
                 </a>
