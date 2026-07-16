@@ -25,7 +25,7 @@ import ResetPasswordPage from "./pages/ResetPasswordPage";
 import VerifyEmailPage from "./pages/VerifyEmailPage";
 import PublicSharePage from "./pages/PublicSharePage";
 import Layout from "./components/Layout";
-
+import LandingPage from "./pages/LandingPage"; // ✅ Imported
 
 const Spinner = () => (
   <div className="min-h-screen bg-surface-0 flex items-center justify-center">
@@ -41,8 +41,6 @@ const ProtectedRoute = ({ children, adminOnly = false }) => {
   return children;
 };
 
-// Public route: redirect logged-in users to dashboard
-// EXCEPT: /admin/login redirects admin users to /admin
 const PublicRoute = ({ children, adminPortal = false }) => {
   const { user, loading } = useAuth();
   if (loading) return null;
@@ -71,7 +69,8 @@ const OAuthCallback = () => {
 function AppRoutes() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      {/* ── Public landing page ─────────────────────────────────────────── */}
+      <Route path="/" element={<LandingPage />} />
 
       {/* ── Auth (public) ────────────────────────────────────────────── */}
       <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
@@ -80,17 +79,13 @@ function AppRoutes() {
       <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
       <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
 
-      {/* Email verify — accessible even when logged in */}
       <Route path="/verify-email" element={<VerifyEmailPage />} />
-
       <Route path="/oauth-callback" element={<OAuthCallback />} />
 
-      {/* ── Public routes ────────────────────────────────────────────── */}
       <Route path="/r/:slug" element={<FileRequestSubmit />} />
       <Route path="/s/:token" element={<PublicSharePage />} />
       <Route path="/gallery" element={<Layout><GalleryPage /></Layout>} />
 
-      {/* ── Protected routes ─────────────────────────────────────────── */}
       <Route path="/dashboard"
         element={<ProtectedRoute><Layout><DashboardPage /></Layout></ProtectedRoute>} />
       <Route path="/upload"
@@ -108,10 +103,8 @@ function AppRoutes() {
       <Route path="/file-requests"
         element={<ProtectedRoute><Layout><FileRequestsPage /></Layout></ProtectedRoute>} />
 
-      {/* ── Admin only ───────────────────────────────────────────────── */}
       <Route path="/admin"
         element={<ProtectedRoute adminOnly><Layout><AdminPage /></Layout></ProtectedRoute>} />
-
       <Route path="/admin/workflows"
         element={<ProtectedRoute adminOnly><Layout><WorkflowBuilder /></Layout></ProtectedRoute>} />
 
