@@ -21,7 +21,7 @@ import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { formatBytes, getFileIcon } from "../utils/helpers";
 import EncryptionModal from "../components/EncryptionModal";
-import { generateFileKey, encryptFile } from "../utils/encryption";
+import { encryptFileWithPassword } from "../utils/encryption"; 
 
 const MAX_SIZE = 50 * 1024 * 1024;
 const ALLOWED_TYPES = [
@@ -322,46 +322,46 @@ export default function UploadPage() {
     refreshUser();
   };
 
-  // Encrypted upload handler
+  // ── UPDATED: Encrypted upload handler (uses Web Crypto) ──────────────────
   const handleEncryptedUpload = async (password) => {
     const pending = files.filter(f => f.status === "pending");
     if (!pending.length) {
       toast.error("No files to upload.");
       return;
     }
-    
+
     setUploading(true);
-    
+
     for (const item of pending) {
       try {
-        const { key, iv } = generateFileKey();
-        
-        setFiles(prev => prev.map(f => 
+        setFiles(prev => prev.map(f =>
           f.id === item.id ? { ...f, status: "uploading", progress: 10 } : f
         ));
-        
-        const encryptedBlob = await encryptFile(item.file, key, iv);
+
+        // Encrypt the file with the user's password (fast Web Crypto)
+        const encryptedBlob = await encryptFileWithPassword(item.file, password);
+
         const formData = new FormData();
         formData.append("files", encryptedBlob, `${item.file.name}.encrypted`);
         formData.append("originalName", item.file.name);
-        formData.append("encryptionIV", iv);
-        formData.append("encryptionKeyEncrypted", key);
         formData.append("isEncrypted", "true");
+        // The salt+IV are embedded in the blob, no need to send separately.
+
         if (tags) formData.append("tags", tags);
         if (description) formData.append("description", description);
-        
+
         await api.post("/api/files/upload-encrypted", formData);
-        
-        setFiles(prev => prev.map(f => 
+
+        setFiles(prev => prev.map(f =>
           f.id === item.id ? { ...f, status: "success", message: "Encrypted & uploaded" } : f
         ));
       } catch (err) {
-        setFiles(prev => prev.map(f => 
+        setFiles(prev => prev.map(f =>
           f.id === item.id ? { ...f, status: "error", message: err.response?.data?.message || err.message } : f
         ));
       }
     }
-    
+
     setUploading(false);
     refreshUser();
     toast.success("Encrypted files uploaded successfully!");
