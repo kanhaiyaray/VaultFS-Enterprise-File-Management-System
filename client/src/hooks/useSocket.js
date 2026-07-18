@@ -12,9 +12,13 @@ let reconnectAttempts = 0;
 function getSocket() {
   if (!_socket) {
     const token = localStorage.getItem("token");
-    _socket = io(import.meta.env.VITE_SOCKET_URL || "", {
+    // Use VITE_SOCKET_URL if set, otherwise fallback to VITE_API_URL
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || import.meta.env.VITE_API_URL || "";
+
+    _socket = io(socketUrl, {
       auth: { token },
-      transports: ["websocket", "polling"],
+      // 👇 Order matters: polling first as fallback, then websocket
+      transports: ["polling", "websocket"],
       reconnectionAttempts: 10,
       reconnectionDelay: 2000,
       reconnectionDelayMax: 10000,
