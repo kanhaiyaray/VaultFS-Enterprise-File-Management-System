@@ -13,6 +13,9 @@ const MAX_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024; // 50M
 
 // ── Allowed MIME types ────────────────────────────────────────────────────────
 const ALLOWED_TYPES = new Set([
+  // Allow fallback for browsers that send unknown types
+  "application/octet-stream", // ← Added to accept files with generic MIME
+
   "image/jpeg","image/png","image/gif","image/webp","image/svg+xml",
   "application/pdf","application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -42,6 +45,7 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
+  // Accept if MIME is in ALLOWED_TYPES
   if (ALLOWED_TYPES.has(file.mimetype)) {
     cb(null, true);
   } else {
@@ -71,6 +75,7 @@ async function validateFileMagic(file) {
 
   // No magic detected (e.g., plain text, CSV, etc.)
   const SAFE_UNDETECTABLE = new Set([
+    "application/octet-stream", // ← Added: allow fallback when no magic detected
     "text/plain", "text/csv", "text/markdown",
     "application/json", "text/javascript", "text/html", "text/css",
     "application/xml", "text/xml",
