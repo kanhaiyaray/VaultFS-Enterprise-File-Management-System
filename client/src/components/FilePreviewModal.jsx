@@ -145,7 +145,6 @@ function TextFetcher({ file, downloadUrl }) {
     if (!downloadUrl) return;
     let mounted = true;
 
-    // ✅ FIX: Use axios with auth instead of plain fetch
     api.get(downloadUrl, { responseType: "text" })
       .then((response) => { 
         if (mounted) setContent(response.data); 
@@ -417,6 +416,7 @@ export default function FilePreviewModal({
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < files.length - 1;
 
+  // ── FIX: Convert relative signed URL to absolute using api.defaults.baseURL ──
   useEffect(() => {
     if (!file?._id) return;
     let mounted = true;
@@ -425,7 +425,14 @@ export default function FilePreviewModal({
 
     api.get(`/api/files/${file._id}/signed-url`)
       .then(({ data }) => {
-        if (mounted) setSignedUrl(data.url || data.signedUrl);
+        if (mounted) {
+          let url = data.url || data.signedUrl;
+          // If the URL is relative, prepend the API base URL
+          if (url && !url.startsWith('http')) {
+            url = new URL(url, api.defaults.baseURL).href;
+          }
+          setSignedUrl(url);
+        }
       })
       .catch(() => {
         if (mounted) setSignedUrl(null);

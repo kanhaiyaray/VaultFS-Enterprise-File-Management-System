@@ -15,8 +15,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// ── Helper: recursively convert relative URLs to absolute ──────────────────
+function transformUrls(obj, baseURL) {
+  if (!obj || typeof obj !== 'object') return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(item => transformUrls(item, baseURL));
+  }
+  const result = { ...obj };
+  // These keys are likely to contain URLs
+  const urlKeys = ['url', 'thumbnailUrl', 'signedUrl', 'downloadUrl', 'previewUrl'];
+  for (const key of Object.keys(result)) {
+    const value = result[key];
+    if (typeof value === 'string' && urlKeys.includes(key) && value.startsWith('/')) {
+      result[key] = new URL(value, baseURL).href;
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = transformUrls(value, baseURL);
+    }
+  }
+  return result;
+}
+
+// ── Response interceptor ──────────────────────────────────────────────────────
 api.interceptors.response.use(
-  (res) => res,
+  (res) => {
+    if (res.data) {
+      res.data = transformUrls(res.data, api.defaults.baseURL);
+    }
+    return res;
+  },
   (err) => {
     if (err.response?.status === 401) {
       const currentPath = window.location.pathname;
@@ -32,4 +58,4 @@ api.interceptors.response.use(
 );
 
 export default api;     
-export { api };          
+export { api };
