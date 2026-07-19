@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertCircle,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -100,7 +101,7 @@ function ImageViewer({ src, alt }) {
   );
 }
 
-function AudioPlayer({ src, file }) {
+function AudioPlayer({ src, file, onError }) {
   return (
     <div className="card p-5 flex items-center gap-4">
       <div className="w-14 h-14 rounded-xl bg-brand/15 border border-brand/25 flex items-center justify-center flex-shrink-0">
@@ -108,7 +109,7 @@ function AudioPlayer({ src, file }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium text-gray-200 truncate mb-2">{file.originalName}</p>
-        <audio controls className="w-full h-9">
+        <audio controls className="w-full h-9" onError={onError}>
           <source src={src} type={file.mimetype} />
         </audio>
       </div>
@@ -116,10 +117,15 @@ function AudioPlayer({ src, file }) {
   );
 }
 
-function PdfViewer({ src }) {
+function PdfViewer({ src, onError }) {
   return (
     <div className="rounded-xl overflow-hidden border border-surface-4 bg-white" style={{ height: 560 }}>
-      <iframe src={`${src}#view=FitH&toolbar=1`} className="w-full h-full" title="PDF Viewer" />
+      <iframe
+        src={`${src}#view=FitH&toolbar=1`}
+        className="w-full h-full"
+        title="PDF Viewer"
+        onError={onError}
+      />
     </div>
   );
 }
@@ -407,6 +413,8 @@ export default function FilePreviewModal({
   const [showShare, setShowShare] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [starring, setStarring] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     setFile(initialFile);
@@ -419,6 +427,8 @@ export default function FilePreviewModal({
   // ── FIX: Convert relative signed URL to absolute using api.defaults.baseURL ──
   useEffect(() => {
     if (!file?._id) return;
+    setPreviewError(false);
+    setRetryCount(0);
     let mounted = true;
     setUrlLoading(true);
     setSignedUrl(null);
@@ -435,14 +445,14 @@ export default function FilePreviewModal({
         }
       })
       .catch(() => {
-        if (mounted) setSignedUrl(null);
+        if (mounted) setPreviewError(true);
       })
       .finally(() => {
         if (mounted) setUrlLoading(false);
       });
 
     return () => { mounted = false; };
-  }, [file?._id]);
+  }, [file?._id, retryCount]);
 
   useEffect(() => {
     const handler = (event) => {
@@ -455,12 +465,15 @@ export default function FilePreviewModal({
     return () => window.removeEventListener("keydown", handler);
   }, [currentIndex, files, hasNext, hasPrev, onClose]);
 
+  // ✅ UPDATED handleDownload using signed URL with inline=0
   const handleDownload = useCallback(async () => {
     try {
       toast.loading("Preparing download...", { id: "download-file" });
-      const response = await api.get(`/api/files/download/${file._id}`, { responseType: "blob" });
-      toast.dismiss("download-file");
-      const blobUrl = URL.createObjectURL(response.data);
+      const { data } = await api.get(`/api/files/${file._id}/signed-url?inline=0`);
+      const response = await fetch(data.url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = blobUrl;
       link.download = file.originalName;
@@ -468,7 +481,10 @@ export default function FilePreviewModal({
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(blobUrl);
-    } catch {
+      toast.dismiss("download-file");
+      toast.success("Download started!");
+    } catch (err) {
+      console.error("Download error:", err);
       toast.dismiss("download-file");
       toast.error("Download failed.");
     }
@@ -504,9 +520,26 @@ export default function FilePreviewModal({
     }
   };
 
+  const retryPreview = () => setRetryCount(prev => prev + 1);
+
   const preview = useMemo(() => {
     if (urlLoading) {
       return <div className="flex justify-center py-16"><Loader2 size={24} className="animate-spin text-brand-glow" /></div>;
+    }
+
+    if (previewError) {
+      return (
+        <div className="flex flex-col items-center gap-4 py-16 text-center">
+          <div className="w-12 h-12 rounded-full bg-red-900/20 border border-red-900/30 flex items-center justify-center">
+            <AlertCircle size={24} className="text-accent-red" />
+          </div>
+          <p className="text-gray-400">Failed to load preview.</p>
+          <button onClick={retryPreview} className="btn-ghost text-sm px-4 py-2">Retry</button>
+          <button onClick={handleDownload} className="btn-primary px-4 py-2">
+            <Download size={14} /> Download
+          </button>
+        </div>
+      );
     }
 
     if (!signedUrl) {
@@ -521,16 +554,40 @@ export default function FilePreviewModal({
       );
     }
 
-    if (file.mimetype?.startsWith("image/")) return <ImageViewer src={signedUrl} alt={file.originalName} />;
-    if (file.mimetype?.startsWith("video/")) return <video controls className="w-full max-h-[480px] rounded-xl border border-surface-4 bg-black" src={signedUrl} preload="metadata" />;
-    if (file.mimetype?.startsWith("audio/")) return <AudioPlayer src={signedUrl} file={file} />;
-    if (file.mimetype === "application/pdf") return <PdfViewer src={signedUrl} />;
+    // Image viewer with error handling
+    if (file.mimetype?.startsWith("image/")) {
+      return <ImageViewer src={signedUrl} alt={file.originalName} />;
+    }
+
+    // Video with error handling
+    if (file.mimetype?.startsWith("video/")) {
+      return (
+        <video
+          controls
+          className="w-full max-h-[480px] rounded-xl border border-surface-4 bg-black"
+          src={signedUrl}
+          preload="metadata"
+          onError={() => setPreviewError(true)}
+        />
+      );
+    }
+
+    // Audio (already has error handling via source)
+    if (file.mimetype?.startsWith("audio/")) {
+      return <AudioPlayer src={signedUrl} file={file} onError={() => setPreviewError(true)} />;
+    }
+
+    // PDF with error handling
+    if (file.mimetype === "application/pdf") {
+      return <PdfViewer src={signedUrl} onError={() => setPreviewError(true)} />;
+    }
+
     if (isEpubFile(file)) return <EbookPreview file={file} downloadUrl={signedUrl} />;
     if (OFFICE_MIMES[file.mimetype]) return <OfficePreview file={file} downloadUrl={signedUrl} />;
     if (isTextFile(file)) return <TextFetcher file={file} downloadUrl={signedUrl} />;
 
     return <BrowserFallbackViewer src={signedUrl} file={file} />;
-  }, [file, handleDownload, signedUrl, urlLoading]);
+  }, [file, handleDownload, signedUrl, urlLoading, previewError]);
 
   return (
     <>

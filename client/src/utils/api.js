@@ -1,15 +1,27 @@
 import axios from "axios";
 
+// ── Read base URL from environment ─────────────────────────────────────────
+const API_BASE_URL = import.meta.env.VITE_API_URL || "";
+
+// In development, log a warning if VITE_API_URL is not set
+if (import.meta.env.DEV && !API_BASE_URL) {
+  console.warn(
+    "[VaultFS] VITE_API_URL is not set in .env. API requests will be sent to the same origin (relative URLs). " +
+    "For cross-origin or production setups, set VITE_API_URL to your backend URL."
+  );
+}
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || "",
+  baseURL: API_BASE_URL,
   timeout: 60_000,
 });
 
+// ── Request interceptor ──────────────────────────────────────────────────────
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem("token");
   if (token) config.headers.Authorization = `Bearer ${token}`;
   if (config.method === 'get') {
-    config.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+    // ✅ REMOVED explicit Cache-Control header – _t is enough for cache busting
     config.params = { ...config.params, _t: Date.now() };
   }
   return config;
@@ -22,12 +34,15 @@ function transformUrls(obj, baseURL) {
     return obj.map(item => transformUrls(item, baseURL));
   }
   const result = { ...obj };
-  // These keys are likely to contain URLs
-  const urlKeys = ['url', 'thumbnailUrl', 'signedUrl', 'downloadUrl', 'previewUrl'];
+  const urlKeys = ['url', 'thumbnailUrl', 'signedUrl', 'downloadUrl', 'previewUrl', 'avatarUrl', 'logoUrl', 'faviconUrl'];
   for (const key of Object.keys(result)) {
     const value = result[key];
     if (typeof value === 'string' && urlKeys.includes(key) && value.startsWith('/')) {
-      result[key] = new URL(value, baseURL).href;
+      if (baseURL) {
+        result[key] = new URL(value, baseURL).href;
+      } else {
+        result[key] = value;
+      }
     } else if (typeof value === 'object' && value !== null) {
       result[key] = transformUrls(value, baseURL);
     }
@@ -57,5 +72,5 @@ api.interceptors.response.use(
   }
 );
 
-export default api;     
+export default api;
 export { api };

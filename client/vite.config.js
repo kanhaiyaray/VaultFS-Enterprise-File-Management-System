@@ -9,8 +9,9 @@ export default defineConfig({
     // Proxy API calls to Express backend during dev
     proxy: {
       "/api": {
-        target: "http://localhost:5000", // Changed from 5001 to 5000
+        target: "http://localhost:5000", // ✅ Ensure this matches your backend port
         changeOrigin: true,
+        // No rewrite needed – backend expects /api prefix
       },
       "/uploads": {
         target: "http://localhost:5000",
@@ -28,7 +29,6 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        // Keep vendor libraries in stable chunks for caching under Vite 8/Rolldown.
         manualChunks(id) {
           if (!id.includes("node_modules")) return;
           if (id.includes("recharts")) return "charts";

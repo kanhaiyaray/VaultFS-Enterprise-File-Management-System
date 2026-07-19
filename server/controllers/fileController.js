@@ -564,7 +564,7 @@ const bulkDownload = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DOWNLOAD SINGLE FILE - LOCAL ONLY
+//  DOWNLOAD SINGLE FILE - LOCAL ONLY (UPDATED)
 // ─────────────────────────────────────────────────────────────────────────────
 const downloadFile = async (req, res, next) => {
   try {
@@ -627,7 +627,9 @@ const downloadFile = async (req, res, next) => {
     }
 
     // ── Local file serving ────────────────────────────────────────────────────
-    if (!file.path || !fs.existsSync(file.path))
+    // Resolve absolute path (in case file.path is relative)
+    const absolutePath = path.resolve(file.path);
+    if (!fs.existsSync(absolutePath))
       return res.status(404).json({ success: false, message: "File data not found on disk." });
 
     await logAccess(file._id, req.user?.id, "download", req);
@@ -637,12 +639,16 @@ const downloadFile = async (req, res, next) => {
       storage: file.storageProvider 
     });
 
-    const dispositionType = req.query.inline === "1" ? "inline" : "attachment";
-    res.setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(file.originalName)}"`);
+    // Determine content disposition
+    const inline = req.query.inline === '1' || req.query.inline === 'true';
+    const dispositionType = inline ? 'inline' : 'attachment';
+    const filename = encodeURIComponent(file.originalName);
+    res.setHeader("Content-Disposition", `${dispositionType}; filename="${filename}"; filename*=UTF-8''${filename}`);
     res.setHeader("Content-Type", file.mimetype || "application/octet-stream");
     res.setHeader("Content-Length", file.size);
+    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
 
-    return res.sendFile(path.resolve(file.path), {
+    return res.sendFile(absolutePath, {
       acceptRanges: true,
       cacheControl: false,
     });
@@ -650,20 +656,22 @@ const downloadFile = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SIGNED URL - LOCAL ONLY
+//  SIGNED URL - LOCAL ONLY (UPDATED with inline param)
 // ─────────────────────────────────────────────────────────────────────────────
 const getSignedUrl = async (req, res, next) => {
   try {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id, isDeleted: false });
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    // Local file – generate a signed download URL
+    // ✅ Accept inline from query, default to 1 (preview)
+    const inline = req.query.inline === '0' ? '0' : '1';
     const accessToken = jwt.sign(
       { fileId: file._id.toString() },
       process.env.JWT_SECRET,
       { expiresIn: "1h" }
     );
-    const url = `/api/files/download/${file._id}?accessToken=${accessToken}&inline=1`;
+    const baseUrl = process.env.SERVER_URL || `http://localhost:${process.env.PORT || 5000}`;
+    const url = `${baseUrl}/api/files/download/${file._id}?accessToken=${accessToken}&inline=${inline}`;
     return res.json({ success: true, url, filename: file.originalName });
   } catch (err) { next(err); }
 };

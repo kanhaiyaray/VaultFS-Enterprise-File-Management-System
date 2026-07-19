@@ -16,58 +16,86 @@ export function AuthProvider({ children }) {
   const refreshUser = useCallback(async () => {
     const token = localStorage.getItem("token");
     if (!token) { 
+      console.log("🔴 No token in localStorage – user is null");
       setUser(null); 
       setLoading(false); 
       return; 
     }
     try {
-      const { data } = await api.get("/api/auth/me");
-      setUser(data.user);
-    } catch {
-      localStorage.removeItem("token");
-      setUser(null);
+      const response = await api.get("/api/auth/me");
+      console.log("✅ /me response:", response);
+      const { data } = response;
+      console.log("📦 data object:", data);
+      
+      if (data && data.user) {
+        console.log("👤 User set from /me:", data.user);
+        setUser(data.user);
+      } else {
+        console.warn("⚠️ /me response missing `user` field – keeping existing user (if any)");
+        // Do not clear user – maybe the token is still valid but the response is malformed
+        // You can fallback to the existing user or keep as is.
+      }
+    } catch (err) {
+      console.error("❌ /me request failed:", err);
+      // Only clear token if it's a 401 (unauthorized) – otherwise keep it
+      if (err.response && err.response.status === 401) {
+        localStorage.removeItem("token");
+        setUser(null);
+      } else {
+        console.warn("⚠️ Non‑401 error – keeping token and user state");
+      }
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // ── Initial load ────────────────────────────────────────────────────────────
   useEffect(() => { 
     refreshUser(); 
   }, [refreshUser]);
 
-  // ── Login: store token then fetch user with fingerprint & device info ─────
+  // ── Login ────────────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password, fingerprint, deviceInfo) => {
-    const { data } = await api.post("/api/auth/login", { 
+    const response = await api.post("/api/auth/login", { 
       email, 
       password, 
       fingerprint, 
       deviceInfo 
     });
+    console.log("🔐 Login response:", response);
+    const { data } = response;
     
-    // Store token if present
     if (data.token) {
       localStorage.setItem("token", data.token);
+      console.log("💾 Token stored");
     }
     
-    // Set user if present
     if (data.user) {
       setUser(data.user);
+      console.log("👤 User set from login:", data.user);
+    } else {
+      console.warn("⚠️ Login response missing `user` – check backend");
     }
     
-    // Return full response for 2FA and suspicious login handling
     return data;
   }, []);
 
-  // ── Logout: wipe token and user state ────────────────────────────────────
+  // ── Logout ──────────────────────────────────────────────────────────────────
   const logout = useCallback(() => {
     localStorage.removeItem("token");
     setUser(null);
+    console.log("🚪 Logged out");
   }, []);
 
   // ── Update user data ──────────────────────────────────────────────────────
   const updateUser = useCallback((updatedUserData) => {
     setUser(prevUser => ({ ...prevUser, ...updatedUserData }));
   }, []);
+
+  // ── Debug: log user changes ────────────────────────────────────────────────
+  useEffect(() => {
+    console.log("🔄 Auth state updated – user:", user);
+  }, [user]);
 
   return (
     <AuthContext.Provider value={{ 

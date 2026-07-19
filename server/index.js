@@ -1,15 +1,11 @@
 /**
  * server/index.js
  * VaultFS Express server — entry point.
- *
- * Starts HTTP server with Socket.IO, connects to MongoDB,
- * mounts all route groups, and wires up error handling.
  */
 require("dotenv").config();
 
 const express = require("express");
 const http = require("http");
-const path = require("path");
 const cors = require("cors");
 const helmet = require("helmet");
 const morgan = require("morgan");
@@ -18,11 +14,8 @@ const mongoose = require("mongoose");
 const { Server } = require("socket.io");
 const { startEngine: startWorkflowEngine } = require("./utils/workflowEngine");
 const { setIO } = require("./utils/socket");
-
-// ── Passport OAuth configuration ─────────────────────────────────────────────
 const passport = require("./utils/passport");
 
-// ── Create app & HTTP server ──────────────────────────────────────────────────
 const app = express();
 const server = http.createServer(app);
 
@@ -34,11 +27,9 @@ const io = new Server(server, {
     credentials: true,
   },
 });
-
 app.locals.io = io;
 setIO(io);
 
-// ── Socket authentication middleware ─────────────────────────────────────────
 const jwt = require("jsonwebtoken");
 io.use((socket, next) => {
   const token = socket.handshake.auth?.token;
@@ -84,6 +75,7 @@ app.use(
         connectSrc: [
           "'self'",
           process.env.CLIENT_URL || "http://localhost:5173",
+          process.env.SERVER_URL || "http://localhost:5000",
           "http://localhost:5000",
         ],
         fontSrc: [
@@ -92,6 +84,12 @@ app.use(
           "data:",
         ],
         frameSrc: ["'self'"],
+        // ✅ ALLOW FRAMING FROM YOUR FRONTEND ORIGIN
+        frameAncestors: [
+          "'self'",
+          process.env.CLIENT_URL || "http://localhost:5173",
+          "https://vault-fs-enterprise-file-management.vercel.app",
+        ],
         objectSrc: ["'none'"],
         upgradeInsecureRequests: process.env.NODE_ENV === "production" ? [] : null,
       },
@@ -99,20 +97,34 @@ app.use(
   })
 );
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
+const allowedOrigins = [
+  process.env.CLIENT_URL,
+  "https://vault-fs-enterprise-file-management.vercel.app",
+  "http://localhost:5173",
+].filter(Boolean);
+
 app.use(
   cors({
-    origin: process.env.CLIENT_URL || "http://localhost:5173",
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error(`Origin ${origin} not allowed by CORS`));
+      }
+    },
     credentials: true,
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "cache-control"],
   })
 );
+
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(passport.initialize());
-
-// ── 🛡️ REMOVED STATIC /uploads ROUTE – all file access now goes through
-//    the authenticated /api/files/download/:id endpoint.
 
 // ── API routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", require("./routes/auth"));
@@ -127,13 +139,10 @@ app.use("/api/branding", require("./routes/branding"));
 app.use("/api/team", require("./routes/team"));
 app.use("/api/file-requests", require("./routes/fileRequests"));
 
-// ── Health check ─────────────────────────────────────────────────────────────
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", version: "3.1.0", timestamp: new Date().toISOString() });
 });
 
-// ── Global error handler (hidden details in production) ─────────────────────
-// eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
   const status = err.statusCode || err.status || 500;
@@ -143,7 +152,6 @@ app.use((err, req, res, next) => {
   res.status(status).json({ success: false, message });
 });
 
-// ── Connect to MongoDB then start server ─────────────────────────────────────
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || "mongodb://127.0.0.1:27017/vaultfs";
 
@@ -151,16 +159,11 @@ mongoose
   .connect(MONGO_URI)
   .then(() => {
     console.log("✅ MongoDB connected");
-    
-    // ── Supabase has been removed – using local storage only ──────────────
     console.log("📦 Using local file storage (server/uploads/)");
-    
     startWorkflowEngine();
     server.listen(PORT, () => {
       console.log(`🚀 VaultFS server running on http://localhost:${PORT}`);
       console.log(`NODE_ENV = ${process.env.NODE_ENV}`);
-      console.log(`🔒 Static /uploads route is DISABLED – all file access via /api/files/download/:id`);
-      console.log(`📦 Frontend is NOT served from here – Vercel handles the UI.`);
     });
   })
   .catch((err) => {
