@@ -9,25 +9,42 @@ const fs     = require("fs");
 const crypto = require("crypto");
 const { fileTypeFromBuffer } = require("file-type");
 
-const MAX_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 50 * 1024 * 1024; // 50MB
+// ── Increased default to 500MB ──────────────────────────────────────────────
+const MAX_SIZE = parseInt(process.env.MAX_FILE_SIZE) || 500 * 1024 * 1024; // 500MB
 
 // ── Allowed MIME types ────────────────────────────────────────────────────────
 const ALLOWED_TYPES = new Set([
   // Allow fallback for browsers that send unknown types
-  "application/octet-stream", // ← Added to accept files with generic MIME
+  "application/octet-stream",
 
+  // Images
   "image/jpeg","image/png","image/gif","image/webp","image/svg+xml",
+
+  // Documents
   "application/pdf","application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   "application/vnd.ms-powerpoint",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+
+  // Text
   "text/plain","text/csv","text/markdown",
+
+  // Archives
   "application/zip","application/x-zip-compressed",
   "application/x-tar","application/gzip",
+
+  // ── Video (expanded) ──────────────────────────────────────────────────────
   "video/mp4","video/webm","video/quicktime",
+  "video/x-msvideo",      // AVI
+  "video/mpeg",           // MPEG
+  "video/ogg",            // OGG
+
+  // Audio
   "audio/mpeg","audio/wav","audio/ogg","audio/flac",
+
+  // Code / data
   "application/json","text/javascript","text/html","text/css",
 ]);
 
@@ -45,7 +62,6 @@ const storage = multer.diskStorage({
 });
 
 const fileFilter = (req, file, cb) => {
-  // Accept if MIME is in ALLOWED_TYPES
   if (ALLOWED_TYPES.has(file.mimetype)) {
     cb(null, true);
   } else {
@@ -61,11 +77,9 @@ const upload = multer({
 
 // ── Magic‑byte validation (anti‑MIME spoofing) ─────────────────────────────
 async function validateFileMagic(file) {
-  // Read the first 4100 bytes (enough for most magic numbers)
   const buffer = await fs.promises.readFile(file.path, { length: 4100 });
   const detected = await fileTypeFromBuffer(buffer);
 
-  // If we detected a MIME type, it must be in the allowed list
   if (detected) {
     if (!ALLOWED_TYPES.has(detected.mime)) {
       throw new Error(`Detected file type "${detected.mime}" is not allowed.`);
@@ -73,9 +87,9 @@ async function validateFileMagic(file) {
     return;
   }
 
-  // No magic detected (e.g., plain text, CSV, etc.)
+  // No magic detected – allow safe text‑based types
   const SAFE_UNDETECTABLE = new Set([
-    "application/octet-stream", // ← Added: allow fallback when no magic detected
+    "application/octet-stream",
     "text/plain", "text/csv", "text/markdown",
     "application/json", "text/javascript", "text/html", "text/css",
     "application/xml", "text/xml",

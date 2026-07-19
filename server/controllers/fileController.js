@@ -1,6 +1,7 @@
 /**
  * controllers/fileController.js
  * VaultFS — complete file management controller.
+ * UPDATED: Direct Supabase signed URLs for preview; proxy for downloads.
  */
 
 "use strict";
@@ -12,9 +13,9 @@ const jwt = require("jsonwebtoken");
 const sharp = require("sharp");
 const archiver = require("archiver");
 const unzipper = require("unzipper");
-const dns = require("dns").promises;          // for SSRF validation
-const { isIPv4, isIPv6 } = require("net");    // for IP classification
-const { fileTypeFromFile } = require("file-type"); // 🛡️ magic‑byte validation
+const dns = require("dns").promises;
+const { isIPv4, isIPv6 } = require("net");
+const { fileTypeFromFile } = require("file-type");
 
 // ── Supabase Storage ────────────────────────────────────────────────────────────
 const supabase = require("../utils/supabase");
@@ -31,22 +32,15 @@ const { triggerWebhook } = require("./webhookController");
 function isPrivateIP(addr) {
   if (isIPv4(addr)) {
     const parts = addr.split(".").map(Number);
-    // 10.0.0.0/8
     if (parts[0] === 10) return true;
-    // 172.16.0.0/12
     if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
-    // 192.168.0.0/16
     if (parts[0] === 192 && parts[1] === 168) return true;
-    // 127.0.0.0/8 (loopback)
     if (parts[0] === 127) return true;
-    // 0.0.0.0
     if (addr === "0.0.0.0") return true;
-    // 169.254.0.0/16 (link-local)
     if (parts[0] === 169 && parts[1] === 254) return true;
     return false;
   }
   if (isIPv6(addr)) {
-    // ::1 loopback, :: unspecified, fe80::/10 link-local, fc00::/7 unique local
     if (addr === "::1" || addr === "::") return true;
     if (addr.startsWith("fe80:") || addr.startsWith("fc00:") || addr.startsWith("fd00:")) return true;
     return false;
@@ -56,7 +50,6 @@ function isPrivateIP(addr) {
 
 async function isPublicUrl(urlString) {
   const url = new URL(urlString);
-  // Only HTTP/HTTPS allowed
   if (!["http:", "https:"].includes(url.protocol)) return false;
 
   const hostname = url.hostname;
@@ -64,9 +57,8 @@ async function isPublicUrl(urlString) {
   try {
     addresses = await dns.resolve(hostname);
   } catch {
-    return false; // unresolvable
+    return false;
   }
-  // Check every resolved IP
   for (const addr of addresses) {
     if (isPrivateIP(addr)) return false;
   }
@@ -189,7 +181,6 @@ const uploadFiles = async (req, res, next) => {
       let supabaseUrl = null;
 
       try {
-        // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
         const quotaCheck = await supabase.checkSupabaseQuota(
           req.user.id.toString(),
           f.size
@@ -205,10 +196,9 @@ const uploadFiles = async (req, res, next) => {
             originalName: f.originalname,
             reason: `Supabase quota exceeded. Used: ${usedMB} MB / ${limitMB} MB. Free: ${remainingMB} MB.`
           });
-          continue; // Skip this file and move to next
+          continue;
         }
 
-        // ── Upload to Supabase ──────────────────────────────────────────────
         const result = await supabase.uploadFile(
           req.user.id.toString(),
           fileBuffer,
@@ -221,7 +211,6 @@ const uploadFiles = async (req, res, next) => {
         console.log(`[Supabase] Uploaded: ${f.originalname} -> ${result.path}`);
       } catch (supabaseErr) {
         console.warn('[Supabase] Upload failed, using local fallback:', supabaseErr.message);
-        // Keep local path as fallback
         storagePath = f.path.replace(/\\/g, "/");
         storageProvider = 'local';
       }
@@ -269,7 +258,6 @@ const uploadFiles = async (req, res, next) => {
       });
       user.storageUsed += f.size;
 
-      // Clean up local file if uploaded to Supabase
       if (storageProvider === 'supabase' && fs.existsSync(f.path)) {
         fs.unlinkSync(f.path);
       }
@@ -351,7 +339,6 @@ const uploadEncryptedFiles = async (req, res, next) => {
       let supabaseUrl = null;
 
       try {
-        // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
         const quotaCheck = await supabase.checkSupabaseQuota(
           req.user.id.toString(),
           f.size
@@ -618,14 +605,12 @@ const bulkDelete = async (req, res, next) => {
     let totalSize = 0;
     
     for (const f of files) {
-      // ── ✅ NEW: Delete from Supabase if stored there ──────────────────────
       if (f.storageProvider === 'supabase' && f.storagePath) {
         try {
           await supabase.deleteFile(f.storagePath);
           console.log(`[Supabase] Bulk deleted: ${f.storagePath}`);
         } catch (err) {
           console.warn('[Supabase] Failed to delete file during bulk operation:', err.message);
-          // Continue even if Supabase delete fails
         }
       }
       
@@ -660,13 +645,12 @@ const bulkDownload = async (req, res, next) => {
     const archive = archiver("zip", { zlib: { level: 5 } });
     archive.pipe(res);
     for (const f of files) {
-      // For Supabase files, we need to download them first
       if (f.storageProvider === 'supabase' && f.storagePath) {
         try {
           const signedUrl = await supabase.getSignedUrl(
             f.owner.toString(),
             f.storagePath,
-            300 // 5 minutes
+            300
           );
           const response = await fetch(signedUrl);
           const buffer = await response.buffer();
@@ -683,7 +667,7 @@ const bulkDownload = async (req, res, next) => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  DOWNLOAD SINGLE FILE (SUPABASE ENABLED)
+//  DOWNLOAD SINGLE FILE (SUPABASE ENABLED) — PROXY VERSION
 // ─────────────────────────────────────────────────────────────────────────────
 const downloadFile = async (req, res, next) => {
   try {
@@ -745,23 +729,32 @@ const downloadFile = async (req, res, next) => {
       }).catch(() => { });
     }
 
-    // ── Serve from Supabase if stored there ──────────────────────────────────
+    // ── NEW: Serve from Supabase by PROXYING (not redirecting) ──────────────
     if (file.storageProvider === 'supabase' && file.storagePath) {
       try {
         const signedUrl = await supabase.getSignedUrl(
           file.owner.toString(),
           file.storagePath,
-          3600 // 1 hour expiry
+          3600 // 1 hour
         );
-        // Redirect to signed URL
-        return res.redirect(signedUrl);
+
+        const response = await fetch(signedUrl);
+        if (!response.ok) throw new Error(`Supabase returned ${response.status}`);
+
+        const dispositionType = req.query.inline === "1" ? "inline" : "attachment";
+        res.setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(file.originalName)}"`);
+        res.setHeader("Content-Type", file.mimetype || "application/octet-stream");
+        res.setHeader("Content-Length", file.size);
+
+        response.body.pipe(res);
+        return;
       } catch (err) {
-        console.warn('[Supabase] Failed to get signed URL, falling back to local:', err.message);
-        // Fall through to local handling
+        console.warn('[Supabase] Proxy failed, falling back to local (if exists):', err.message);
+        // Fall through to local handling if file also exists locally
       }
     }
 
-    // ── Local file serving ────────────────────────────────────────────────────
+    // ── Local file serving (unchanged) ──────────────────────────────────────
     if (!file.path || !fs.existsSync(file.path))
       return res.status(404).json({ success: false, message: "File data not found on disk." });
 
@@ -776,24 +769,38 @@ const downloadFile = async (req, res, next) => {
     res.setHeader("Content-Disposition", `${dispositionType}; filename="${encodeURIComponent(file.originalName)}"`);
     res.setHeader("Content-Type", file.mimetype || "application/octet-stream");
     res.setHeader("Content-Length", file.size);
-    return res.sendFile(path.resolve(file.path));
+
+    return res.sendFile(path.resolve(file.path), {
+      acceptRanges: true,
+      cacheControl: false,
+    });
   } catch (err) { next(err); }
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SIGNED URL
+//  SIGNED URL — direct Supabase URL for previews
 // ─────────────────────────────────────────────────────────────────────────────
 const getSignedUrl = async (req, res, next) => {
   try {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id, isDeleted: false });
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
+    // ── If stored in Supabase, return a direct signed URL ──
+    if (file.storageProvider === 'supabase' && file.storagePath) {
+      const signedUrl = await supabase.getSignedUrl(
+        file.owner.toString(),
+        file.storagePath,
+        3600 // 1 hour
+      );
+      return res.json({ success: true, url: signedUrl, filename: file.originalName });
+    }
+
+    // ── Local file – keep existing logic ──
     const accessToken = jwt.sign(
       { fileId: file._id.toString() },
       process.env.JWT_SECRET,
-      { expiresIn: "5m" }
+      { expiresIn: "1h" }
     );
-
     const url = `/api/files/download/${file._id}?accessToken=${accessToken}&inline=1`;
     return res.json({ success: true, url, filename: file.originalName });
   } catch (err) { next(err); }
@@ -1024,35 +1031,28 @@ const extractArchive = async (req, res, next) => {
     const zip = await unzipper.Open.file(file.path);
 
     for (const entry of zip.files) {
-      // ── Security fix: use only basename to prevent directory traversal ──
       const safeName = path.basename(entry.path);
       const destPath = path.join(destDir, safeName);
       const resolved = path.resolve(destPath);
 
-      // Verify that the resolved path is still inside destDir
       if (!resolved.startsWith(destDir)) {
-        // Malicious path – skip this entry
         continue;
       }
 
-      // If it's a directory, we can ignore it (flattened structure)
       if (entry.type === 'Directory') {
         continue;
       }
 
-      // Ensure parent directory exists (though with basename it's just destDir)
       const parentDir = path.dirname(resolved);
       fs.mkdirSync(parentDir, { recursive: true });
 
-      // Read and write the file
       const content = await entry.buffer();
       fs.writeFileSync(resolved, content);
 
-      // Create a File document for each extracted file
       const stat = fs.statSync(resolved);
       const doc = await File.create({
         filename: path.basename(resolved),
-        originalName: entry.path,  // preserve full path for reference
+        originalName: entry.path,
         mimetype: "application/octet-stream",
         size: stat.size,
         path: resolved,
@@ -1211,10 +1211,8 @@ const restoreFile = async (req, res, next) => {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id, isDeleted: true });
     if (!file) return res.status(404).json({ success: false, message: "File not found in trash." });
     
-    // Check if file exists (local or Supabase)
     if (file.storageProvider === 'supabase' && file.storagePath) {
-      // Supabase file - we don't need to check local filesystem
-      // Just restore the metadata
+      // Supabase file - no local check needed
     } else if (!file.isDedup && !fs.existsSync(file.path)) {
       return res.status(400).json({ success: false, message: "File data no longer exists on disk." });
     }
@@ -1241,7 +1239,6 @@ const permanentDelete = async (req, res, next) => {
     const file = await File.findOne({ _id: req.params.id, owner: req.user.id });
     if (!file) return res.status(404).json({ success: false, message: "File not found." });
 
-    // ── Delete from Supabase if stored there ─────────────────────────────────
     if (file.storageProvider === 'supabase' && file.storagePath) {
       try {
         await supabase.deleteFile(file.storagePath);
@@ -1251,7 +1248,6 @@ const permanentDelete = async (req, res, next) => {
       }
     }
 
-    // ── Delete local files ────────────────────────────────────────────────────
     if (!file.isDedup && file.path && fs.existsSync(file.path)) {
       fs.unlinkSync(file.path);
     }
@@ -1274,7 +1270,6 @@ const emptyTrash = async (req, res, next) => {
     
     for (const file of files) {
       try {
-        // ── ✅ NEW: Delete from Supabase ─────────────────────────────────────
         if (file.storageProvider === 'supabase' && file.storagePath) {
           try {
             await supabase.deleteFile(file.storagePath);
@@ -1284,7 +1279,6 @@ const emptyTrash = async (req, res, next) => {
           }
         }
 
-        // ── Delete local files ──────────────────────────────────────────────
         if (!file.isDedup && file.path && fs.existsSync(file.path)) {
           fs.unlinkSync(file.path);
         }
@@ -1313,7 +1307,6 @@ const uploadFromUrl = async (req, res, next) => {
       return res.status(400).json({ success: false, message: "Invalid URL format." });
     }
 
-    // ─── SSRF protection ───
     if (!await isPublicUrl(url)) {
       return res.status(400).json({ success: false, message: "URL points to a private or non‑routable address." });
     }
@@ -1397,7 +1390,6 @@ const uploadFromUrl = async (req, res, next) => {
         return res.status(400).json({ success: false, message: `File type could not be verified and is not in the safe‑list.` });
       }
     }
-    // ─── end validation ──────────────────────────────────────────────────────
 
     let imgMeta = {};
     let thumbPath = null;
@@ -1419,7 +1411,6 @@ const uploadFromUrl = async (req, res, next) => {
     let supabaseUrl = null;
 
     try {
-      // ── ✅ NEW: Check Supabase quota before upload ──────────────────────
       const quotaCheck = await supabase.checkSupabaseQuota(
         req.user.id.toString(),
         buffer.length

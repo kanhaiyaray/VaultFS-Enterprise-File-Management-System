@@ -21,16 +21,19 @@ import api from "../utils/api";
 import { useAuth } from "../context/AuthContext";
 import { formatBytes, getFileIcon } from "../utils/helpers";
 import EncryptionModal from "../components/EncryptionModal";
-import { encryptFileWithPassword } from "../utils/encryption"; 
+import { encryptFileWithPassword } from "../utils/encryption";
 
-const MAX_SIZE = 50 * 1024 * 1024;
+// ─── File size limit raised to 500 MB ────────────────────────────────────────
+const MAX_SIZE = 500 * 1024 * 1024; // 500 MB
+
 const ALLOWED_TYPES = [
   "image/jpeg", "image/png", "image/gif", "image/webp", "image/svg+xml",
   "application/pdf", "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain", "text/csv", "application/zip", "video/mp4", "video/webm",
+  "text/plain", "text/csv", "application/zip",
+  "video/mp4", "video/webm",
   "audio/mpeg", "audio/wav",
 ];
 
@@ -147,7 +150,8 @@ function UrlUploadTab({ onUploadComplete }) {
             <ExternalLink size={14} />
           </a>
         </div>
-        <p className="text-[11px] text-gray-600 mt-1">Supports images, PDFs, videos, audio, archives. Max 50 MB.</p>
+        {/* Updated max size message */}
+        <p className="text-[11px] text-gray-600 mt-1">Supports images, PDFs, videos, audio, archives. Max 500 MB.</p>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-3">
@@ -322,7 +326,7 @@ export default function UploadPage() {
     refreshUser();
   };
 
-  // ── UPDATED: Encrypted upload handler (uses Web Crypto) ──────────────────
+  // Encrypted upload handler
   const handleEncryptedUpload = async (password) => {
     const pending = files.filter(f => f.status === "pending");
     if (!pending.length) {
@@ -338,14 +342,12 @@ export default function UploadPage() {
           f.id === item.id ? { ...f, status: "uploading", progress: 10 } : f
         ));
 
-        // Encrypt the file with the user's password (fast Web Crypto)
         const encryptedBlob = await encryptFileWithPassword(item.file, password);
 
         const formData = new FormData();
         formData.append("files", encryptedBlob, `${item.file.name}.encrypted`);
         formData.append("originalName", item.file.name);
         formData.append("isEncrypted", "true");
-        // The salt+IV are embedded in the blob, no need to send separately.
 
         if (tags) formData.append("tags", tags);
         if (description) formData.append("description", description);

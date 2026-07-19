@@ -63,6 +63,8 @@ io.on("connection", (socket) => {
 // ── Security & utility middleware ────────────────────────────────────────────
 app.use(
   helmet({
+    // ✅ FIX: Allow cross-origin resource loading for downloads
+    crossOriginResourcePolicy: { policy: "cross-origin" },
     crossOriginEmbedderPolicy: false, // allow iframe embeds
     contentSecurityPolicy: {
       directives: {
@@ -83,6 +85,7 @@ app.use(
         connectSrc: [
           "'self'",
           process.env.CLIENT_URL || "http://localhost:5173",
+          "http://localhost:5000",   // ✅ Added for API calls during development
         ],
         fontSrc: [
           "'self'",
