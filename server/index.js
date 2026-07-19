@@ -63,33 +63,32 @@ io.on("connection", (socket) => {
 // ── Security & utility middleware ────────────────────────────────────────────
 app.use(
   helmet({
-    // ✅ FIX: Allow cross-origin resource loading for downloads
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginEmbedderPolicy: false, // allow iframe embeds
+    crossOriginEmbedderPolicy: false,
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: [
           "'self'",
-          "'unsafe-inline'",                // required for frontend
-          "https://cdnjs.cloudflare.com",   // Prism.js, Marked, etc.
-          "https://cdn.jsdelivr.net",       // additional CDN
+          "'unsafe-inline'",
+          "https://cdnjs.cloudflare.com",
+          "https://cdn.jsdelivr.net",
         ],
         styleSrc: [
           "'self'",
-          "'unsafe-inline'",                // required for frontend
-          "https://cdnjs.cloudflare.com",   // Prism themes
-          "https://fonts.googleapis.com",   // Google Fonts
+          "'unsafe-inline'",
+          "https://cdnjs.cloudflare.com",
+          "https://fonts.googleapis.com",
         ],
         imgSrc: ["'self'", "data:"],
         connectSrc: [
           "'self'",
           process.env.CLIENT_URL || "http://localhost:5173",
-          "http://localhost:5000",   // ✅ Added for API calls during development
+          "http://localhost:5000",
         ],
         fontSrc: [
           "'self'",
-          "https://fonts.gstatic.com",      // Google Fonts
+          "https://fonts.gstatic.com",
           "data:",
         ],
         frameSrc: ["'self'"],
@@ -138,7 +137,6 @@ app.get("/api/health", (req, res) => {
 app.use((err, req, res, next) => {
   console.error("[Error]", err.message);
   const status = err.statusCode || err.status || 500;
-  // In production, do not leak internal error details
   const message = process.env.NODE_ENV === "production"
     ? "Internal server error"
     : err.message || "Internal server error";
@@ -154,19 +152,8 @@ mongoose
   .then(() => {
     console.log("✅ MongoDB connected");
     
-    // ── Verify Supabase storage configuration ────────────────────────────────
-    try {
-      const supabase = require("./utils/supabase");
-      if (supabase.supabaseAdmin) {
-        console.log("✅ Supabase storage configured");
-        console.log(`   📦 Bucket: ${supabase.SUPABASE_BUCKET}`);
-      } else {
-        console.warn("⚠️ Supabase not configured — using local storage");
-        console.warn("   Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env to enable");
-      }
-    } catch (err) {
-      console.warn("⚠️ Supabase module not found — using local storage only");
-    }
+    // ── Supabase has been removed – using local storage only ──────────────
+    console.log("📦 Using local file storage (server/uploads/)");
     
     startWorkflowEngine();
     server.listen(PORT, () => {
