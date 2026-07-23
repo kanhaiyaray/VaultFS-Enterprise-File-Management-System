@@ -19,7 +19,7 @@
 
 Self-hosted · SHA-256 deduplication · 4-tier RBAC · JWT + TOTP 2FA · Signed webhooks · Live in production
 
-[![Live soon](https://img.shields.io/badge/-%F0%9F%8C%90%20%20live%20soon%E2%86%97-0f0f0f?style=for-the-badge&logoColor=white&labelColor=0f0f0f)](https://vaultfs-enterprise-file-management-system-production.up.railway.app/)
+[![Live](https://img.shields.io/badge/-%F0%9F%8C%90%20%20live%E2%86%97-0f0f0f?style=for-the-badge&logoColor=white&labelColor=0f0f0f)](https://www.vaultfs.in/)
 &nbsp;&nbsp;&nbsp;
 [![GitHub](https://img.shields.io/badge/-%E2%AD%90%20%20VIEW%20ON%20GITHUB-1a1a2e?style=for-the-badge&logo=github&logoColor=white&labelColor=1a1a2e)](https://github.com/kanhaiyaray/VaultFS-Enterprise-File-Management-System)
 
@@ -760,6 +760,6 @@ Built with ❤️ for secure, self-hosted file management
 
 **VaultFS** — Your files. Your server. Your rules.
 
-🌐 [Live soon](https://vaultfs-enterprise-file-management-system-production.up.railway.app/) &nbsp;·&nbsp; 🔗 [GitHub](https://github.com/kanhaiyaray/VaultFS-Enterprise-File-Management-System)
+🌐 [Live ](https://www.vaultfs.in/) &nbsp;·&nbsp; 🔗 [GitHub](https://github.com/kanhaiyaray/VaultFS-Enterprise-File-Management-System)
 
 </div>
