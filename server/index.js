@@ -72,9 +72,13 @@ app.use(
           "https://fonts.googleapis.com",
         ],
         imgSrc: ["'self'", "data:"],
+        // 🔥 UPDATED: allow all known frontend origins and backend URLs
         connectSrc: [
           "'self'",
-          process.env.CLIENT_URL || "http://localhost:5173",
+          "https://vaultfs.in",
+          "https://www.vaultfs.in",
+          "https://vault.vaultfs.in",
+          "https://vault-fs-enterprise-file-management.vercel.app",
           process.env.SERVER_URL || "http://localhost:5000",
           "http://localhost:5000",
         ],
@@ -84,10 +88,12 @@ app.use(
           "data:",
         ],
         frameSrc: ["'self'"],
-        // ✅ ALLOW FRAMING FROM YOUR FRONTEND ORIGIN
+        // 🔥 UPDATED: allow framing from all frontend origins
         frameAncestors: [
           "'self'",
-          process.env.CLIENT_URL || "http://localhost:5173",
+          "https://vaultfs.in",
+          "https://www.vaultfs.in",
+          "https://vault.vaultfs.in",
           "https://vault-fs-enterprise-file-management.vercel.app",
         ],
         objectSrc: ["'none'"],
@@ -98,27 +104,38 @@ app.use(
 );
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
+// 🔥 UPDATED: hardcoded list includes all production origins + future subdomain
 const allowedOrigins = [
-  process.env.CLIENT_URL,
+  "https://vaultfs.in",
+  "https://www.vaultfs.in",
+  "https://vault.vaultfs.in",
   "https://vault-fs-enterprise-file-management.vercel.app",
   "http://localhost:5173",
-].filter(Boolean);
+];
 
 app.use(
   cors({
     origin: function (origin, callback) {
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) {
-        callback(null, true);
-      } else {
-        callback(new Error(`Origin ${origin} not allowed by CORS`));
+        return callback(null, true);
       }
+      console.warn(`[CORS] Blocked origin: ${origin}`);
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "cache-control"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "cache-control",
+    ],
   })
 );
+
+// 🔥 Ensure OPTIONS preflight responses are handled
+app.options("*", cors());
 
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === "production" ? "combined" : "dev"));
