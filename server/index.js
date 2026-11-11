@@ -146,6 +146,7 @@ app.use(passport.initialize());
 // ── API routes ───────────────────────────────────────────────────────────────
 app.use("/api/auth", require("./routes/auth"));
 app.use("/api/files", require("./routes/files"));
+app.use("/api/analytics", require("./routes/analytics"));
 app.use("/api/ai", require("./routes/ai"));
 app.use("/api/users", require("./routes/users"));
 app.use("/api/admin", require("./routes/admin"));

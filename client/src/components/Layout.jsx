@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, Upload, Shield, LogOut, Menu, X, HardDrive, Zap,
+  LayoutDashboard, Upload, Shield, LogOut, Crown, Menu, X, HardDrive, Zap,
   ChevronRight, BarChart3, Globe, Users, Settings, Activity, Star,
   Keyboard, Link2, Trash2,
 } from "lucide-react";
@@ -28,13 +28,7 @@ const navItems = [
 
 const trashItem = { to: "/trash", icon: Trash2, label: "Trash" };
 
-const ACTIVITY_ICONS = {
-  upload:         "⬆️",
-  delete:         "🗑️",
-  bulk_delete:    "🗑️",
-  chunk_progress: "⏳",
-  banned:         "🚫",
-};
+
 
 // ── Animated Storage Gauge Component ──────────────────────────────────────────
 function AnimatedStorageGauge({ percent, used, total, className = "" }) {
@@ -80,7 +74,7 @@ function AnimatedStorageGauge({ percent, used, total, className = "" }) {
   
   const getTextColor = () => {
     if (percent > 90) return "text-red-400";
-    if (percent > 70) return "text-amber-400";
+    if (percent > 70) return "text-accent-amber";
     return "text-brand-glow";
   };
   
@@ -191,8 +185,6 @@ export default function Layout({ children }) {
 
   useEffect(() => {
     on("activity", (event) => {
-      setActivities((prev) => [{ ...event, id: Date.now() }, ...prev].slice(0, 30));
-      if (!activityOpen) setUnread((n) => n + 1);
       if (event.type === "banned") {
         toast.error(event.payload?.message || "Account suspended.");
         logout();
@@ -200,7 +192,7 @@ export default function Layout({ children }) {
       }
     });
     return () => off("activity");
-  }, [on, off, activityOpen, logout, navigate]);
+  }, [on, off, logout, navigate]);
 
   // Global keyboard shortcuts
   useEffect(() => {
@@ -226,7 +218,7 @@ export default function Layout({ children }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [navigate, redo, undo]);
+  }, [navigate]);
 
   const handleLogout   = () => { logout(); navigate("/login"); };
   const displayName    = user?.displayName || user?.username;
@@ -271,7 +263,7 @@ export default function Layout({ children }) {
   );
 
   return (
-    <div className="min-h-screen bg-surface-0 grid-bg flex">
+    <div className="h-screen bg-surface-0 grid-bg flex overflow-hidden">
       {/* Global announcement banner — floats above everything */}
       <AnnouncementBanner />
 
@@ -316,7 +308,9 @@ export default function Layout({ children }) {
           <div className="border-t border-surface-3 my-2" />
           <NavLinkItem to={trashItem.to} icon={trashItem.icon} label={trashItem.label} isTrash />
 
-          {/* Admin */}
+          
+        
+          {/* 👑 Admin Panel Link — Only visible to Admins */}
           {user?.role === "admin" && (
             <>
               <div className="border-t border-surface-3 my-2" />
@@ -326,16 +320,16 @@ export default function Layout({ children }) {
                 className={({ isActive }) =>
                   `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
                     isActive
-                      ? "bg-amber-500/15 text-amber-300 border border-amber-500/20"
+                      ? "bg-accent-amber/15 text-accent-amber border border-accent-amber/30 shadow-glow-sm"
                       : "text-gray-400 hover:text-white hover:bg-surface-3"
                   }`
                 }
               >
                 {({ isActive }) => (
                   <>
-                    <Shield size={15} className={isActive ? "text-amber-400" : "text-gray-500"} />
+                    <Crown size={15} className={isActive ? "text-accent-amber fill-accent-amber" : "text-gray-500 group-hover:text-accent-amber"} />
                     <span className="flex-1">Admin Panel</span>
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-amber-900/30 text-amber-400 border border-amber-900/40">
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-accent-amber/20 text-accent-amber border border-accent-amber/40">
                       ADMIN
                     </span>
                   </>
@@ -345,83 +339,10 @@ export default function Layout({ children }) {
           )}
         </nav>
 
-        {/* Activity feed */}
-        <div className="px-4 pb-2">
-          <button
-            onClick={() => { setActivityOpen(!activityOpen); setUnread(0); }}
-            className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-              activityOpen ? "bg-surface-3 text-white" : "text-gray-400 hover:text-white hover:bg-surface-3"
-            }`}
-          >
-            <Activity size={15} className="text-gray-500" />
-            <span>Live Activity</span>
-            {unread > 0 && (
-              <span className="ml-auto w-5 h-5 rounded-full bg-brand text-white text-[10px] font-bold flex items-center justify-center">
-                {unread}
-              </span>
-            )}
-          </button>
-        </div>
-
-        {activityOpen && (
-          <div className="mx-4 mb-2 card p-3 max-h-48 overflow-y-auto space-y-1.5 animate-fade-up">
-            {activities.length === 0 ? (
-              <p className="text-xs text-gray-600 text-center py-3">No recent activity</p>
-            ) : (
-              activities.map((a) => (
-                <div key={a.id} className="flex items-start gap-2">
-                  <span className="text-sm flex-shrink-0">{ACTIVITY_ICONS[a.type] || "📌"}</span>
-                  <div className="min-w-0">
-                    <p className="text-xs text-gray-300 leading-snug">
-                      {a.type === "upload"         && `Uploaded ${a.payload?.count} file(s)`}
-                      {a.type === "delete"         && `Deleted ${a.payload?.fileName}`}
-                      {a.type === "bulk_delete"    && `Deleted ${a.payload?.count} files`}
-                      {a.type === "chunk_progress" && `Upload ${a.payload?.progress}%`}
-                      {a.type === "banned"         && "Account suspended"}
-                    </p>
-                    <p className="text-[10px] text-gray-600">
-                      {new Date(a.timestamp).toLocaleTimeString()}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* Keyboard hint */}
-        <div className="px-4 pb-2">
-          <button
-            onClick={() => setShowShortcuts(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-600 hover:text-gray-400 transition-colors"
-          >
-            <Keyboard size={12} />
-            <span>Keyboard shortcuts</span>
-            <kbd className="ml-auto bg-surface-3 border border-surface-4 px-1.5 py-0.5 rounded text-[10px]">?</kbd>
-          </button>
-        </div>
-
-        <div className="px-4 pb-2 grid grid-cols-2 gap-2">
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            className="btn-ghost text-xs px-3 py-2 justify-center disabled:opacity-40"
-          >
-            Undo
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            className="btn-ghost text-xs px-3 py-2 justify-center disabled:opacity-40"
-          >
-            Redo
-          </button>
-        </div>
-
         {/* Email verification nudge */}
         {user && !user.emailVerified && (
           <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-amber-900/10 border border-amber-900/20">
-            <p className="text-[10px] text-amber-400 leading-snug">
+            <p className="text-[10px] text-accent-amber leading-snug">
               ⚠ Email not verified.{" "}
               <button
                 className="underline hover:no-underline"
@@ -488,7 +409,7 @@ export default function Layout({ children }) {
       </aside>
 
       {/* ── Main ─────────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 h-full min-h-0">
         <header className="lg:hidden flex items-center gap-4 px-4 py-3 bg-surface-1 border-b border-surface-3">
           <button onClick={() => setSidebarOpen(true)} className="text-gray-400 hover:text-white">
             <Menu size={20} />
@@ -500,7 +421,7 @@ export default function Layout({ children }) {
             </span>
           )}
         </header>
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto min-h-0">{children}</main>
       </div>
 
       {showShortcuts && <KeyboardShortcuts onClose={() => setShowShortcuts(false)} />}
