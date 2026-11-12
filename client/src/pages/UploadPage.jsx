@@ -1,20 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { useDropzone } from "react-dropzone";
 import {
-  AlertCircle,
-  CheckCircle2,
-  Download,
-  ExternalLink,
-  FileText,
-  FileWarning,
-  Info,
-  Link2,
-  Loader2,
-  Tag,
-  UploadCloud,
-  X,
-  Zap,
-  Shield,
+  AlertCircle, CheckCircle2, Download, ExternalLink, FileText, Info, Link2, Loader2,
+  Tag, UploadCloud, X, Zap, Shield, Clipboard, FolderUp, RefreshCw, Play, CheckSquare, Trash2
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../utils/api";
@@ -23,7 +11,6 @@ import { formatBytes, getFileIcon } from "../utils/helpers";
 import EncryptionModal from "../components/EncryptionModal";
 import { encryptFileWithPassword } from "../utils/encryption";
 
-// ─── File size limit raised to 500 MB ────────────────────────────────────────
 const MAX_SIZE = 500 * 1024 * 1024; // 500 MB
 
 const ALLOWED_TYPES = [
@@ -37,90 +24,97 @@ const ALLOWED_TYPES = [
   "audio/mpeg", "audio/wav",
 ];
 
-function FileRow({ file, onRemove }) {
-  const icons = {
-    pending: <div className="w-4 h-4 rounded-full border-2 border-gray-600" />,
+// ── File Row Component ────────────────────────────────────────────────────────
+function FileRow({ file, onRemove, onRetry }) {
+  const [preview, setPreview] = useState(null);
+
+  // Create image preview URL
+  useEffect(() => {
+    if (file.type?.startsWith("image/") && file.file) {
+      const url = URL.createObjectURL(file.file);
+      setPreview(url);
+      return () => URL.revokeObjectURL(url);
+    }
+  }, [file.file, file.type]);
+
+  const statusIcons = {
+    pending: <div className="w-4 h-4 rounded-full border-2 border-gray-500" />,
     uploading: <Loader2 size={16} className="animate-spin text-brand-glow" />,
     success: <CheckCircle2 size={16} className="text-accent-green" />,
     error: <AlertCircle size={16} className="text-accent-red" />,
-    duplicate: <FileWarning size={16} className="text-accent-amber" />,
+    duplicate: <AlertCircle size={16} className="text-accent-amber" />,
   };
 
   return (
-    <div className={`flex items-center gap-3 p-3 rounded-lg border transition-all ${
+    <div className={`flex items-center gap-3 p-2.5 rounded-lg border transition-all ${
       file.status === "success" ? "bg-green-900/10 border-green-900/30"
-        : file.status === "error" ? "bg-red-900/10 border-red-900/30"
-          : file.status === "duplicate" ? "bg-amber-900/10 border-amber-900/30"
-            : "bg-surface-2 border-surface-4"
+      : file.status === "error" ? "bg-red-900/10 border-red-900/30"
+      : file.status === "duplicate" ? "bg-amber-900/10 border-amber-900/30"
+      : "bg-surface-2 border-surface-4"
     }`}>
-      <span className="text-xl flex-shrink-0">{getFileIcon(file.type)}</span>
+      <div className="w-10 h-10 rounded-md overflow-hidden bg-surface-3 flex-shrink-0 flex items-center justify-center border border-surface-4">
+        {preview ? (
+          <img src={preview} alt="preview" className="w-full h-full object-cover" />
+        ) : (
+          <span className="text-xl">{getFileIcon(file.type)}</span>
+        )}
+      </div>
+      
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white truncate font-medium">{file.name}</p>
         <div className="flex items-center gap-2 mt-0.5">
           <span className="text-[11px] text-gray-500 font-mono">{formatBytes(file.size)}</span>
           {file.status === "uploading" && (
-            <div className="flex-1 h-1 bg-surface-4 rounded-full overflow-hidden">
-              <div className="h-full progress-bar rounded-full" style={{ width: `${file.progress || 10}%` }} />
+            <div className="flex-1 h-1.5 bg-surface-4 rounded-full overflow-hidden max-w-[200px]">
+              <div className="h-full progress-bar rounded-full transition-all duration-300" style={{ width: `${file.progress || 0}%` }} />
             </div>
           )}
           {file.message && (
-            <span className={`text-[11px] ${
+            <span className={`text-[11px] truncate ${
               file.status === "success" ? "text-accent-green"
-                : file.status === "duplicate" ? "text-accent-amber"
-                  : "text-accent-red"
+              : file.status === "duplicate" ? "text-accent-amber" : "text-accent-red"
             }`}>
               {file.message}
             </span>
           )}
         </div>
       </div>
-      {icons[file.status]}
-      {(file.status === "pending" || file.status === "error") && (
-        <button onClick={() => onRemove(file.id)} className="text-gray-600 hover:text-accent-red transition-colors ml-1">
-          <X size={14} />
-        </button>
-      )}
+      
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {statusIcons[file.status]}
+        {file.status === "error" && (
+          <button onClick={() => onRetry(file)} className="p-1.5 text-amber-400 hover:bg-amber-900/20 rounded-md transition-colors" title="Retry">
+            <RefreshCw size={14} />
+          </button>
+        )}
+        {(file.status === "pending" || file.status === "error" || file.status === "duplicate") && (
+          <button onClick={() => onRemove(file.id)} className="p-1.5 text-gray-500 hover:text-accent-red hover:bg-red-900/20 rounded-md transition-colors" title="Remove">
+            <X size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
+// ── URL Upload Tab ────────────────────────────────────────────────────────────
 function UrlUploadTab({ onUploadComplete }) {
   const [url, setUrl] = useState("");
   const [filename, setFilename] = useState("");
   const [tags, setTags] = useState("");
-  const [description, setDescription] = useState("");
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null);
 
   const handleImport = async () => {
     if (!url.trim()) return toast.error("Please enter a URL.");
-    try {
-      new URL(url);
-    } catch {
-      return toast.error("Please enter a valid URL including https://.");
-    }
-
+    try { new URL(url); } catch { return toast.error("Invalid URL format."); }
     setLoading(true);
-    setResult(null);
-
     try {
-      const { data } = await api.post("/api/files/upload-from-url", {
-        url: url.trim(),
-        filename: filename.trim() || undefined,
-        tags: tags.trim() || undefined,
-        description: description.trim() || undefined,
-      });
-      setResult({ success: true, file: data.file, message: data.message });
-      toast.success(data.message || "File imported!");
-      setUrl("");
-      setFilename("");
-      setTags("");
-      setDescription("");
+      await api.post("/api/files/upload-from-url", { url, filename, tags });
+      toast.success("File imported successfully!");
+      setUrl(""); setFilename(""); setTags("");
       onUploadComplete?.();
     } catch (error) {
-      const message = error.response?.data?.message || "Import failed.";
-      setResult({ success: false, message });
-      toast.error(message);
+      toast.error(error.response?.data?.message || "Import failed.");
     } finally {
       setLoading(false);
     }
@@ -133,121 +127,70 @@ function UrlUploadTab({ onUploadComplete }) {
           <Link2 size={11} /> File URL *
         </label>
         <div className="flex gap-2">
-          <input
-            type="url"
-            placeholder="https://example.com/file.pdf"
-            className="input flex-1 font-mono text-sm"
-            value={url}
-            onChange={(event) => setUrl(event.target.value)}
-            onKeyDown={(event) => { if (event.key === "Enter") handleImport(); }}
-          />
-          <a
-            href={url || "#"}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-10 h-10 rounded-lg flex items-center justify-center bg-surface-3 border border-surface-4 text-gray-500 hover:text-white transition-colors flex-shrink-0"
-          >
+          <input type="url" placeholder="https://example.com/file.pdf" className="input flex-1 font-mono text-sm" value={url} onChange={(e) => setUrl(e.target.value)} />
+          <a href={url || "#"} target="_blank" rel="noopener noreferrer" className="w-10 h-10 rounded-lg flex items-center justify-center bg-surface-3 border border-surface-4 text-gray-500 hover:text-white transition-colors flex-shrink-0">
             <ExternalLink size={14} />
           </a>
         </div>
-        {/* Updated max size message */}
-        <p className="text-[11px] text-gray-600 mt-1">Supports images, PDFs, videos, audio, archives. Max 500 MB.</p>
       </div>
-
       <div className="grid sm:grid-cols-2 gap-3">
         <div>
-          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
-            <FileText size={11} /> Filename Override
-          </label>
-          <input type="text" placeholder="my-document.pdf" className="input" value={filename} onChange={(event) => setFilename(event.target.value)} />
+          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5"><FileText size={11} /> Filename Override</label>
+          <input type="text" placeholder="my-document.pdf" className="input" value={filename} onChange={(e) => setFilename(e.target.value)} />
         </div>
         <div>
-          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
-            <Tag size={11} /> Tags <span className="text-gray-600">(comma separated)</span>
-          </label>
-          <input type="text" placeholder="design, reference" className="input" value={tags} onChange={(event) => setTags(event.target.value)} />
+          <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5"><Tag size={11} /> Tags</label>
+          <input type="text" placeholder="design, reference" className="input" value={tags} onChange={(e) => setTags(e.target.value)} />
         </div>
       </div>
-
-      <div>
-        <label className="text-xs font-medium text-gray-400 mb-1.5">Description</label>
-        <input type="text" placeholder="Optional description..." className="input" value={description} onChange={(event) => setDescription(event.target.value)} />
-      </div>
-
       <button onClick={handleImport} disabled={loading || !url.trim()} className="btn-primary w-full justify-center py-3 text-sm">
         {loading ? <><Loader2 size={16} className="animate-spin" /> Importing...</> : <><Download size={16} /> Import from URL</>}
       </button>
-
-      {result && (
-        <div className={`p-4 rounded-xl border animate-fade-up ${result.success ? "bg-emerald-900/10 border-emerald-900/30" : "bg-red-900/10 border-red-900/30"}`}>
-          <div className="flex items-start gap-2">
-            {result.success
-              ? <CheckCircle2 size={15} className="text-emerald-400 mt-0.5 flex-shrink-0" />
-              : <AlertCircle size={15} className="text-accent-red mt-0.5 flex-shrink-0" />}
-            <div className="min-w-0">
-              <p className={`text-sm font-medium ${result.success ? "text-emerald-300" : "text-accent-red"}`}>{result.message}</p>
-              {result.success && result.file && (
-                <p className="text-[11px] text-gray-500 mt-0.5 font-mono truncate">
-                  {result.file.originalName} · {formatBytes(result.file.size)}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="card p-3 flex items-start gap-2">
-        <Info size={13} className="text-gray-600 mt-0.5 flex-shrink-0" />
-        <p className="text-xs text-gray-600 leading-relaxed">
-          VaultFS fetches the file server-side. The source URL must be publicly accessible.
-          Duplicate detection applies and existing files will not be re-imported.
-        </p>
-      </div>
     </div>
   );
 }
 
+// ── Main Component ────────────────────────────────────────────────────────────
 export default function UploadPage() {
   const { refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState("files");
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [overallProgress, setOverallProgress] = useState(0);
   const [tags, setTags] = useState("");
   const [description, setDescription] = useState("");
-  const [rateLimitHit, setRateLimitHit] = useState(false);
   const [showEncryptionModal, setShowEncryptionModal] = useState(false);
+
   const folderInputRef = useRef(null);
+  const abortControllerRef = useRef(null);
 
-  useEffect(() => {
-    if (!folderInputRef.current) return;
-    folderInputRef.current.setAttribute("webkitdirectory", "");
-    folderInputRef.current.setAttribute("directory", "");
+  // ── Add files helper ────────────────────────────────────────────────────────
+  const addFiles = useCallback((newFiles, folderName = "") => {
+    const validFiles = newFiles.filter(file => {
+      if (file.size > MAX_SIZE) { toast.error(`"${file.name}" is too large (max 500MB).`); return false; }
+      if (!ALLOWED_TYPES.includes(file.type) && file.type !== "") { toast.error(`"${file.name}" type not allowed.`); return false; }
+      return true;
+    });
+
+    const queued = validFiles.map((file) => ({
+      id: `${file.name}-${Date.now()}-${Math.random()}`,
+      file,
+      name: file.webkitRelativePath || file.name,
+      size: file.size,
+      type: file.type,
+      status: "pending",
+      progress: 0,
+      message: folderName ? `From: ${folderName}` : "",
+    }));
+
+    setFiles((prev) => [...prev, ...queued]);
   }, []);
 
-  const makeQueuedFile = (file) => ({
-    id: `${file.name}-${Date.now()}-${Math.random()}`,
-    file,
-    name: file.webkitRelativePath || file.name,
-    size: file.size,
-    type: file.type,
-    status: "pending",
-    progress: 0,
-    message: "",
-  });
-
+  // ── Dropzone ────────────────────────────────────────────────────────────────
   const onDrop = useCallback((accepted, rejected) => {
-    const queued = accepted.map(makeQueuedFile);
-    setFiles((prev) => [...prev, ...queued]);
-    if (rejected.length) {
-      toast.error(`${rejected.length} file(s) rejected: ${rejected[0].errors[0]?.message}`);
-    }
-  }, []);
-
-  const addFolderFiles = (fileList) => {
-    const queued = [...fileList].map(makeQueuedFile);
-    setFiles((prev) => [...prev, ...queued]);
-    if (queued.length) toast.success(`${queued.length} file(s) added from folder.`);
-  };
+    addFiles(accepted);
+    if (rejected.length) toast.error(`${rejected.length} file(s) rejected.`);
+  }, [addFiles]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -256,149 +199,170 @@ export default function UploadPage() {
     multiple: true,
   });
 
-  const removeFile = (id) => setFiles((prev) => prev.filter((file) => file.id !== id));
-  const clearAll = () => setFiles([]);
-
-  // Regular upload handler
-  const handleUpload = async () => {
-    const pending = files.filter((file) => file.status === "pending");
-    if (!pending.length) {
-      toast.error("No files to upload.");
-      return;
-    }
-
-    setUploading(true);
-    setRateLimitHit(false);
-
-    const batchSize = 5;
-
-    for (let index = 0; index < pending.length; index += batchSize) {
-      const batch = pending.slice(index, index + batchSize);
-      const formData = new FormData();
-      batch.forEach((item) => formData.append("files", item.file));
-      if (tags) formData.append("tags", tags);
-      if (description) formData.append("description", description);
-
-      setFiles((prev) => prev.map((file) => (
-        batch.find((item) => item.id === file.id) ? { ...file, status: "uploading", progress: 20 } : file
-      )));
-
-      try {
-        const { data } = await api.post("/api/files/upload", formData, {
-          headers: { "Content-Type": "multipart/form-data" },
-          onUploadProgress: (event) => {
-            const progress = Math.round((event.loaded / event.total) * 100);
-            setFiles((prev) => prev.map((file) => (
-              batch.find((item) => item.id === file.id) ? { ...file, progress } : file
-            )));
-          },
-        });
-
-        const uploadedNames = new Set(data.files.map((file) => file.originalName));
-        const skippedNames = new Set(data.skipped?.map((item) => item.originalName) || []);
-
-        setFiles((prev) => prev.map((file) => {
-          if (!batch.find((item) => item.id === file.id)) return file;
-          if (uploadedNames.has(file.file.name)) return { ...file, status: "success", progress: 100, message: "Uploaded" };
-          if (skippedNames.has(file.file.name)) return { ...file, status: "duplicate", message: "Duplicate" };
-          return { ...file, status: "error", message: "Failed" };
-        }));
-
-        if (data.files.length) toast.success(`${data.files.length} file(s) uploaded!`);
-        if (data.skipped?.length) toast(`${data.skipped.length} duplicate(s) skipped.`, { icon: "!" });
-      } catch (error) {
-        if (error.response?.status === 429) {
-          setRateLimitHit(true);
-          setFiles((prev) => prev.map((file) => (
-            batch.find((item) => item.id === file.id) ? { ...file, status: "error", message: "Rate limited" } : file
-          )));
-          break;
+  // ── Paste Support ───────────────────────────────────────────────────────────
+  useEffect(() => {
+    const handlePaste = (e) => {
+      if (activeTab !== "files") return;
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const pastedFiles = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].kind === "file") {
+          const file = items[i].getAsFile();
+          if (file) pastedFiles.push(file);
         }
-
-        const message = error.response?.data?.message || "Upload failed";
-        setFiles((prev) => prev.map((file) => (
-          batch.find((item) => item.id === file.id) ? { ...file, status: "error", message } : file
-        )));
       }
-    }
+      if (pastedFiles.length > 0) {
+        addFiles(pastedFiles);
+        toast.success(`${pastedFiles.length} file(s) pasted from clipboard!`);
+      }
+    };
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [addFiles, activeTab]);
 
-    setUploading(false);
-    refreshUser();
+  // ── Folder Input ────────────────────────────────────────────────────────────
+  const handleFolderSelect = (e) => {
+    const selectedFiles = Array.from(e.target.files || []);
+    if (selectedFiles.length) {
+      const folderName = selectedFiles[0].webkitRelativePath.split('/')[0];
+      addFiles(selectedFiles, folderName);
+      toast.success(`Added ${selectedFiles.length} files from folder "${folderName}"`);
+    }
+    e.target.value = null; // reset
   };
 
-  // Encrypted upload handler
-  const handleEncryptedUpload = async (password) => {
-    const pending = files.filter(f => f.status === "pending");
-    if (!pending.length) {
-      toast.error("No files to upload.");
-      return;
+  // ── Handlers ────────────────────────────────────────────────────────────────
+  const removeFile = (id) => setFiles((prev) => prev.filter((f) => f.id !== id));
+  const clearAll = () => { if (!uploading) setFiles([]); };
+  
+  const retryFile = (fileToRetry) => {
+    setFiles((prev) => prev.map(f => f.id === fileToRetry.id ? { ...f, status: "pending", message: "" } : f));
+  };
+
+  const cancelUpload = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setUploading(false);
+      setFiles(prev => prev.map(f => f.status === "uploading" ? { ...f, status: "error", message: "Cancelled" } : f));
+      toast.error("Upload cancelled.");
     }
+  };
+
+  // ── Upload Logic ────────────────────────────────────────────────────────────
+  const handleUpload = async (isEncrypted = false, password = "") => {
+    const pending = files.filter((f) => f.status === "pending");
+    if (!pending.length) return toast.error("No pending files to upload.");
 
     setUploading(true);
+    setOverallProgress(0);
+    abortControllerRef.current = new AbortController();
 
-    for (const item of pending) {
+    const batchSize = 5;
+    let completedCount = 0;
+
+    for (let index = 0; index < pending.length; index += batchSize) {
+      if (abortControllerRef.current?.signal.aborted) break;
+
+      const batch = pending.slice(index, index + batchSize);
+      
+      // Mark batch as uploading
+      setFiles((prev) => prev.map((file) => batch.find((b) => b.id === file.id) ? { ...file, status: "uploading", progress: 20 } : file));
+
       try {
-        setFiles(prev => prev.map(f =>
-          f.id === item.id ? { ...f, status: "uploading", progress: 10 } : f
-        ));
-
-        const encryptedBlob = await encryptFileWithPassword(item.file, password);
-
-        const formData = new FormData();
-        formData.append("files", encryptedBlob, `${item.file.name}.encrypted`);
-        formData.append("originalName", item.file.name);
-        formData.append("isEncrypted", "true");
+        let formData = new FormData();
+        
+        if (isEncrypted) {
+          // Encrypted upload logic (simplified for batch)
+          for (const item of batch) {
+            const encryptedBlob = await encryptFileWithPassword(item.file, password);
+            formData.append("files", encryptedBlob, `${item.file.name}.encrypted`);
+            formData.append("originalNames", item.file.name);
+          }
+          formData.append("isEncrypted", "true");
+        } else {
+          batch.forEach((item) => formData.append("files", item.file));
+        }
 
         if (tags) formData.append("tags", tags);
         if (description) formData.append("description", description);
 
-        await api.post("/api/files/upload-encrypted", formData);
+        const endpoint = isEncrypted ? "/api/files/upload-encrypted" : "/api/files/upload";
+        const { data } = await api.post(endpoint, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+          signal: abortControllerRef.current.signal,
+          onUploadProgress: (event) => {
+            if (event.total) {
+              const batchPercent = Math.round((event.loaded / event.total) * 100);
+              setFiles((prev) => prev.map((file) => batch.find((b) => b.id === file.id) ? { ...file, progress: batchPercent } : file));
+            }
+          },
+        });
 
-        setFiles(prev => prev.map(f =>
-          f.id === item.id ? { ...f, status: "success", message: "Encrypted & uploaded" } : f
-        ));
-      } catch (err) {
-        setFiles(prev => prev.map(f =>
-          f.id === item.id ? { ...f, status: "error", message: err.response?.data?.message || err.message } : f
-        ));
+        // Handle success
+        const uploadedNames = new Set(data.files?.map((f) => f.originalName) || []);
+        const skippedNames = new Set(data.skipped?.map((item) => item.originalName) || []);
+
+        setFiles((prev) => prev.map((file) => {
+          if (!batch.find((b) => b.id === file.id)) return file;
+          if (uploadedNames.has(file.file.name)) return { ...file, status: "success", progress: 100, message: "Uploaded" };
+          if (skippedNames.has(file.file.name)) return { ...file, status: "duplicate", progress: 100, message: "Duplicate" };
+          return { ...file, status: "error", progress: 0, message: "Failed" };
+        }));
+
+        completedCount += batch.length;
+        setOverallProgress(Math.round((completedCount / pending.length) * 100));
+
+      } catch (error) {
+        if (error.name === "CanceledError" || error.name === "AbortError") break;
+
+        const message = error.response?.data?.message || "Upload failed";
+        setFiles((prev) => prev.map((file) => batch.find((b) => b.id === file.id) ? { ...file, status: "error", progress: 0, message } : file));
       }
     }
 
     setUploading(false);
+    abortControllerRef.current = null;
     refreshUser();
-    toast.success("Encrypted files uploaded successfully!");
+
+    // Summary toast
+    const successCount = files.filter(f => f.status === "success").length;
+    if (successCount > 0) toast.success(`Upload process finished!`);
   };
 
-  const pendingCount = files.filter((file) => file.status === "pending").length;
-  const successCount = files.filter((file) => file.status === "success").length;
+  const handleEncryptedUpload = async (password) => {
+    setShowEncryptionModal(false);
+    await handleUpload(true, password);
+  };
+
+  // ── Stats ──────────────────────────────────────────────────────────────────
+  const stats = useMemo(() => {
+    const pending = files.filter(f => f.status === "pending").length;
+    const success = files.filter(f => f.status === "success").length;
+    const errors = files.filter(f => f.status === "error").length;
+    const totalSize = files.reduce((acc, f) => acc + f.size, 0);
+    return { pending, success, errors, totalSize };
+  }, [files]);
+
   const tabs = [
     { id: "files", label: "Upload Files", icon: UploadCloud },
     { id: "url", label: "Import from URL", icon: Link2 },
   ];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-5">
+    <div className="p-6 max-w-4xl mx-auto space-y-5 pb-24">
       <div>
-        <h1 className="font-display font-bold text-2xl text-white">Upload</h1>
-        <p className="text-gray-500 text-sm mt-1">Drop files directly, upload folders, or import from a public URL.</p>
+        <h1 className="font-display font-bold text-2xl text-white">Upload Center</h1>
+        <p className="text-gray-500 text-sm mt-1">Drop files, paste from clipboard, or upload entire folders.</p>
       </div>
-
-      {rateLimitHit && (
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-red-900/20 border border-red-900/40 text-accent-red text-sm animate-fade-up">
-          <AlertCircle size={16} className="flex-shrink-0" />
-          Upload rate limit reached. Please wait a moment before uploading more files.
-        </div>
-      )}
 
       <div className="flex gap-1 bg-surface-2 border border-surface-4 rounded-xl p-1">
         {tabs.map(({ id, label, icon: Icon }) => (
-          <button
-            key={id}
-            onClick={() => setActiveTab(id)}
+          <button key={id} onClick={() => setActiveTab(id)}
             className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === id ? "bg-surface-1 text-white shadow-sm border border-surface-4" : "text-gray-500 hover:text-gray-300"
-            }`}
-          >
+            }`}>
             <Icon size={14} /> {label}
           </button>
         ))}
@@ -406,10 +370,12 @@ export default function UploadPage() {
 
       {activeTab === "files" && (
         <div className="space-y-5 animate-fade-up">
+          
+          {/* Dropzone Area */}
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-300 ${
-              isDragActive ? "dropzone-active border-brand bg-brand/5" : "border-surface-4 hover:border-brand/40 bg-surface-2 hover:bg-surface-3"
+              isDragActive ? "border-brand bg-brand/5 dropzone-active" : "border-surface-4 hover:border-brand/40 bg-surface-2 hover:bg-surface-3"
             }`}
           >
             <input {...getInputProps()} />
@@ -419,90 +385,79 @@ export default function UploadPage() {
               </div>
               <div>
                 <p className="text-white font-medium">{isDragActive ? "Drop files here..." : "Drag and drop files here"}</p>
-                <p className="text-gray-500 text-sm mt-1">or <span className="text-brand-glow cursor-pointer">browse to choose</span></p>
+                <p className="text-gray-500 text-sm mt-1">or <span className="text-brand-glow cursor-pointer hover:underline">browse to choose</span></p>
               </div>
-              <div className="flex flex-wrap justify-center gap-1 mt-1">
-                {["JPG", "PNG", "PDF", "MP4", "ZIP", "DOCX", "CSV"].map((ext) => (
-                  <span key={ext} className="badge bg-surface-4 text-gray-500 text-[10px]">{ext}</span>
-                ))}
-              </div>
-              <div className="flex items-center gap-3 mt-3">
+              
+              <div className="flex items-center gap-3 mt-4">
+                <div className="flex items-center gap-1.5 text-xs text-gray-500 bg-surface-1 px-3 py-1.5 rounded-lg border border-surface-4">
+                  <Clipboard size={13} /> Paste anywhere to upload
+                </div>
                 <button
                   type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    folderInputRef.current?.click();
-                  }}
-                  className="btn-ghost text-xs px-3 py-2"
+                  onClick={(e) => { e.stopPropagation(); folderInputRef.current?.click(); }}
+                  className="btn-ghost text-xs px-3 py-1.5 border border-surface-4 bg-surface-1"
                 >
-                  Upload Folder
+                  <FolderUp size={13} /> Upload Folder
                 </button>
                 <input
                   ref={folderInputRef}
                   type="file"
                   multiple
                   className="hidden"
-                  onChange={(event) => addFolderFiles(event.target.files || [])}
+                  onChange={handleFolderSelect}
+                  webkitdirectory=""
+                  directory=""
                 />
               </div>
             </div>
           </div>
 
+          {/* Tags & Description */}
           <div className="grid sm:grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
-                <Tag size={11} /> Tags <span className="text-gray-600">(comma separated)</span>
+                <Tag size={11} /> Default Tags
               </label>
-              <input type="text" className="input" placeholder="project, invoice, 2024" value={tags} onChange={(event) => setTags(event.target.value)} />
+              <input type="text" className="input" placeholder="project, invoice, 2024" value={tags} onChange={(e) => setTags(e.target.value)} />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-400 mb-1.5 flex items-center gap-1.5">
                 <FileText size={11} /> Description
               </label>
-              <input type="text" className="input" placeholder="Optional description" value={description} onChange={(event) => setDescription(event.target.value)} />
+              <input type="text" className="input" placeholder="Optional description" value={description} onChange={(e) => setDescription(e.target.value)} />
             </div>
           </div>
 
+          {/* Upload Queue */}
           {files.length > 0 && (
-            <div className="card p-4 space-y-2 animate-fade-up">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-sm font-medium text-white">
-                  {files.length} file(s) {successCount > 0 && `· ${successCount} uploaded`}
-                </p>
-                <button onClick={clearAll} disabled={uploading} className="text-xs text-gray-500 hover:text-accent-red transition-colors">
-                  Clear all
-                </button>
+            <div className="card p-4 space-y-3 animate-fade-up">
+              <div className="flex items-center justify-between border-b border-surface-3 pb-3">
+                <div className="flex items-center gap-3">
+                  <h3 className="text-sm font-semibold text-white">Upload Queue</h3>
+                  <span className="text-xs text-gray-500">{files.length} files ({formatBytes(stats.totalSize)})</span>
+                </div>
+                {!uploading && (
+                  <button onClick={clearAll} className="text-xs text-gray-500 hover:text-accent-red transition-colors flex items-center gap-1">
+                    <Trash2 size={12} /> Clear all
+                  </button>
+                )}
               </div>
-              <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                {files.map((file) => <FileRow key={file.id} file={file} onRemove={removeFile} />)}
-              </div>
-            </div>
-          )}
-
-          {pendingCount > 0 && (
-            <div className="flex gap-3">
-              <button onClick={handleUpload} disabled={uploading} className="btn-primary flex-1 justify-center text-base py-3 animate-fade-up">
-                {uploading ? <Loader2 size={18} className="animate-spin" /> : <Zap size={18} />}
-                {uploading ? "Uploading..." : `Upload ${pendingCount} file${pendingCount > 1 ? "s" : ""}`}
-              </button>
               
-              <button
-                onClick={() => setShowEncryptionModal(true)}
-                disabled={uploading}
-                className="flex items-center gap-1.5 px-4 py-3 rounded-lg text-sm bg-brand/10 border border-brand/20 text-brand-glow hover:bg-brand/20 transition-all"
-              >
-                <Shield size={16} /> Encrypt Files
-              </button>
+              <div className="space-y-2 max-h-72 overflow-y-auto pr-2 custom-scrollbar">
+                {files.map((file) => <FileRow key={file.id} file={file} onRemove={removeFile} onRetry={retryFile} />)}
+              </div>
             </div>
           )}
 
-          <div className="card p-3 flex items-start gap-2">
+          {/* Info */}
+          <div className="card p-3 flex items-start gap-2 bg-surface-2">
             <Info size={13} className="text-gray-600 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-gray-600 leading-relaxed">
-              Authenticated users can upload <strong className="text-gray-500">10 files per minute</strong> with
-              up to <strong className="text-gray-500">500 MB per hour</strong> of bandwidth. Duplicate files are detected automatically.
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Max size is <strong className="text-gray-400">500 MB</strong> per file. Duplicates are automatically skipped. 
+              Folder upload will append the folder name as a tag.
             </p>
           </div>
+
         </div>
       )}
 
@@ -512,11 +467,53 @@ export default function UploadPage() {
         </div>
       )}
 
+      {/* ── Floating Upload Bar ── */}
+      {activeTab === "files" && (stats.pending > 0 || uploading) && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-full max-w-lg z-40 animate-fade-up px-4">
+          <div className="bg-surface-1 border border-surface-4 rounded-2xl shadow-2xl p-4 flex flex-col gap-3 backdrop-blur-md">
+            
+            {/* Global Progress */}
+            {uploading && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-xs font-medium">
+                  <span className="text-brand-glow">Uploading {stats.pending} file(s)...</span>
+                  <span className="text-white">{overallProgress}%</span>
+                </div>
+                <div className="h-2 bg-surface-3 rounded-full overflow-hidden">
+                  <div className="h-full bg-brand rounded-full transition-all duration-300" style={{ width: `${overallProgress}%` }} />
+                </div>
+              </div>
+            )}
+
+            {/* Actions */}
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-semibold text-white">
+                {uploading ? `Processing...` : `${stats.pending} files ready`}
+              </span>
+              <div className="flex items-center gap-2">
+                {uploading ? (
+                  <button onClick={cancelUpload} className="btn-danger text-sm px-4">
+                    <X size={14} /> Cancel
+                  </button>
+                ) : (
+                  <>
+                    <button onClick={() => setShowEncryptionModal(true)} className="btn-ghost text-sm px-3 border border-surface-4">
+                      <Shield size={14} /> Encrypt
+                    </button>
+                    <button onClick={() => handleUpload(false)} className="btn-primary text-sm px-5">
+                      <Play size={14} /> Start Upload
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+          </div>
+        </div>
+      )}
+
       {showEncryptionModal && (
-        <EncryptionModal
-          onConfirm={handleEncryptedUpload}
-          onClose={() => setShowEncryptionModal(false)}
-        />
+        <EncryptionModal onConfirm={handleEncryptedUpload} onClose={() => setShowEncryptionModal(false)} />
       )}
     </div>
   );

@@ -1,25 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Activity,
-  AlertCircle,
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  Edit3,
-  Eye,
-  History,
-  Info,
-  Loader2,
-  Palette,
-  Share2,
-  Star,
-  Trash2,
-  Volume2,
-  X,
-  ZoomIn,
-  ZoomOut,
-  RotateCw,
+  Activity, AlertCircle, Check, ChevronLeft, ChevronRight, Download, Edit3, Eye,
+  History, Info, Loader2, Palette, Share2, Star, Trash2, Volume2, X, ZoomIn,
+  ZoomOut, RotateCw,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import api from "../utils/api";
@@ -71,29 +54,17 @@ function ImageViewer({ src, alt }) {
         />
       </div>
       <div className="flex items-center gap-1 bg-surface-2 border border-surface-4 rounded-lg px-2 py-1.5">
-        <button 
-          onClick={() => setScale((value) => Math.max(0.25, value - 0.25))} 
-          className="p-1 text-gray-500 hover:text-white transition-colors"
-        >
+        <button onClick={() => setScale((v) => Math.max(0.25, v - 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
           <ZoomOut size={13} />
         </button>
-        <button 
-          onClick={() => { setScale(1); setRotate(0); }} 
-          className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors"
-        >
+        <button onClick={() => { setScale(1); setRotate(0); }} className="px-2 py-0.5 text-xs text-gray-400 hover:text-white font-mono min-w-[44px] text-center transition-colors">
           {Math.round(scale * 100)}%
         </button>
-        <button 
-          onClick={() => setScale((value) => Math.min(4, value + 0.25))} 
-          className="p-1 text-gray-500 hover:text-white transition-colors"
-        >
+        <button onClick={() => setScale((v) => Math.min(4, v + 0.25))} className="p-1 text-gray-500 hover:text-white transition-colors">
           <ZoomIn size={13} />
         </button>
         <div className="w-px h-4 bg-surface-4 mx-1" />
-        <button 
-          onClick={() => setRotate((value) => value + 90)} 
-          className="p-1 text-gray-500 hover:text-white transition-colors"
-        >
+        <button onClick={() => setRotate((v) => v + 90)} className="p-1 text-gray-500 hover:text-white transition-colors">
           <RotateCw size={13} />
         </button>
       </div>
@@ -118,13 +89,54 @@ function AudioPlayer({ src, file, onError }) {
 }
 
 function PdfViewer({ src, onError }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    let objectUrl = null;
+
+    async function loadPdf() {
+      try {
+        setLoading(true);
+        const response = await fetch(src);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const blob = await response.blob();
+        if (active) {
+          objectUrl = URL.createObjectURL(blob);
+          setBlobUrl(objectUrl);
+        }
+      } catch (err) {
+        console.error("PDF fetch failed:", err);
+        if (active && onError) onError();
+      } finally {
+        if (active) setLoading(false);
+      }
+    }
+    loadPdf();
+
+    return () => {
+      active = false;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [src, onError]);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-brand-glow" />
+      </div>
+    );
+  }
+
+  if (!blobUrl) return null; 
+
   return (
     <div className="rounded-xl overflow-hidden border border-surface-4 bg-white" style={{ height: 560 }}>
       <iframe
-        src={`${src}#view=FitH&toolbar=1`}
+        src={`${blobUrl}#view=FitH&toolbar=1`}
         className="w-full h-full"
         title="PDF Viewer"
-        onError={onError}
       />
     </div>
   );
@@ -424,7 +436,6 @@ export default function FilePreviewModal({
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < files.length - 1;
 
-  // ── FIX: Convert relative signed URL to absolute using api.defaults.baseURL ──
   useEffect(() => {
     if (!file?._id) return;
     setPreviewError(false);
@@ -437,7 +448,6 @@ export default function FilePreviewModal({
       .then(({ data }) => {
         if (mounted) {
           let url = data.url || data.signedUrl;
-          // If the URL is relative, prepend the API base URL
           if (url && !url.startsWith('http')) {
             url = new URL(url, api.defaults.baseURL).href;
           }
@@ -465,7 +475,6 @@ export default function FilePreviewModal({
     return () => window.removeEventListener("keydown", handler);
   }, [currentIndex, files, hasNext, hasPrev, onClose]);
 
-  // ✅ UPDATED handleDownload using signed URL with inline=0
   const handleDownload = useCallback(async () => {
     try {
       toast.loading("Preparing download...", { id: "download-file" });
@@ -533,7 +542,7 @@ export default function FilePreviewModal({
           <div className="w-12 h-12 rounded-full bg-red-900/20 border border-red-900/30 flex items-center justify-center">
             <AlertCircle size={24} className="text-accent-red" />
           </div>
-          <p className="text-gray-400">Failed to load preview.</p>
+          <p className="text-gray-400">Failed to load preview. The server might be offline.</p>
           <button onClick={retryPreview} className="btn-ghost text-sm px-4 py-2">Retry</button>
           <button onClick={handleDownload} className="btn-primary px-4 py-2">
             <Download size={14} /> Download
@@ -554,30 +563,20 @@ export default function FilePreviewModal({
       );
     }
 
-    // Image viewer with error handling
     if (file.mimetype?.startsWith("image/")) {
       return <ImageViewer src={signedUrl} alt={file.originalName} />;
     }
 
-    // Video with error handling
     if (file.mimetype?.startsWith("video/")) {
       return (
-        <video
-          controls
-          className="w-full max-h-[480px] rounded-xl border border-surface-4 bg-black"
-          src={signedUrl}
-          preload="metadata"
-          onError={() => setPreviewError(true)}
-        />
+        <video controls className="w-full max-h-[480px] rounded-xl border border-surface-4 bg-black" src={signedUrl} preload="metadata" onError={() => setPreviewError(true)} />
       );
     }
 
-    // Audio (already has error handling via source)
     if (file.mimetype?.startsWith("audio/")) {
       return <AudioPlayer src={signedUrl} file={file} onError={() => setPreviewError(true)} />;
     }
 
-    // PDF with error handling
     if (file.mimetype === "application/pdf") {
       return <PdfViewer src={signedUrl} onError={() => setPreviewError(true)} />;
     }
@@ -591,14 +590,8 @@ export default function FilePreviewModal({
 
   return (
     <>
-      <div 
-        className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" 
-        onClick={onClose}
-      >
-        <div 
-          className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up" 
-          onClick={(event) => event.stopPropagation()}
-        >
+      <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+        <div className="bg-surface-1 border border-surface-4 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl animate-fade-up" onClick={(event) => event.stopPropagation()}>
           {/* Header */}
           <div className="flex items-center gap-3 px-5 py-4 border-b border-surface-3 flex-shrink-0">
             <span className="text-2xl flex-shrink-0">{getFileIcon(file.mimetype)}</span>
@@ -633,43 +626,26 @@ export default function FilePreviewModal({
             <div className="flex items-center gap-1.5 flex-shrink-0">
               {isOwner && <LabelPicker file={file} onUpdate={(updated) => setFile(updated)} />}
 
-              <button 
-                onClick={handleStar} 
-                disabled={starring} 
-                className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all"
-              >
+              <button onClick={handleStar} disabled={starring} className="p-2 rounded-lg text-gray-500 hover:text-yellow-400 hover:bg-yellow-900/10 transition-all">
                 <Star size={15} className={file.isStarred ? "fill-yellow-400 text-yellow-400" : ""} />
               </button>
 
               {isOwner && (
-                <button 
-                  onClick={() => setRenaming((prev) => !prev)} 
-                  className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
-                >
+                <button onClick={() => setRenaming((prev) => !prev)} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
                   <Edit3 size={15} />
                 </button>
               )}
 
-              <button 
-                onClick={() => setShowShare(true)} 
-                className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all"
-              >
+              <button onClick={() => setShowShare(true)} className="p-2 rounded-lg text-gray-500 hover:text-brand-glow hover:bg-brand/10 transition-all">
                 <Share2 size={15} />
               </button>
               
-              <button 
-                onClick={handleDownload} 
-                className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all"
-              >
+              <button onClick={handleDownload} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all">
                 <Download size={15} />
               </button>
               
               {isOwner && (
-                <button 
-                  onClick={handleDelete} 
-                  disabled={deleting} 
-                  className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all"
-                >
+                <button onClick={handleDelete} disabled={deleting} className="p-2 rounded-lg text-gray-500 hover:text-accent-red hover:bg-red-900/10 transition-all">
                   {deleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
                 </button>
               )}
@@ -677,28 +653,17 @@ export default function FilePreviewModal({
               {files.length > 1 && (
                 <>
                   <div className="w-px h-5 bg-surface-4 mx-1" />
-                  <button 
-                    onClick={() => setFile(files[currentIndex - 1])} 
-                    disabled={!hasPrev} 
-                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
-                  >
+                  <button onClick={() => setFile(files[currentIndex - 1])} disabled={!hasPrev} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
                     <ChevronLeft size={15} />
                   </button>
                   <span className="text-xs text-gray-600 font-mono">{currentIndex + 1}/{files.length}</span>
-                  <button 
-                    onClick={() => setFile(files[currentIndex + 1])} 
-                    disabled={!hasNext} 
-                    className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30"
-                  >
+                  <button onClick={() => setFile(files[currentIndex + 1])} disabled={!hasNext} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all disabled:opacity-30">
                     <ChevronRight size={15} />
                   </button>
                 </>
               )}
 
-              <button 
-                onClick={onClose} 
-                className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all ml-1"
-              >
+              <button onClick={onClose} className="p-2 rounded-lg text-gray-500 hover:text-white hover:bg-surface-3 transition-all ml-1">
                 <X size={15} />
               </button>
             </div>
