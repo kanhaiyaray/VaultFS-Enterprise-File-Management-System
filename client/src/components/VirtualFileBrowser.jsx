@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-const GRID_MIN_WIDTH = 190;
 const GRID_ROW_HEIGHT = 196;
 const LIST_ROW_HEIGHT = 84;
 const OVERSCAN = 4;
@@ -14,6 +13,7 @@ export default function VirtualFileBrowser({
   onLoadMore,
   renderItem,
   emptyState = null,
+  gridMinWidth = 190, // NEW: allow dynamic grid sizing
 }) {
   const containerRef = useRef(null);
   const [viewportHeight, setViewportHeight] = useState(720);
@@ -45,7 +45,7 @@ export default function VirtualFileBrowser({
   }, [hasMore, items.length, loading, onLoadMore]);
 
   const columns = viewMode === "grid"
-    ? Math.max(1, Math.floor(containerWidth / GRID_MIN_WIDTH))
+    ? Math.max(1, Math.floor(containerWidth / gridMinWidth))
     : 1;
 
   const itemHeight = viewMode === "grid" ? GRID_ROW_HEIGHT : LIST_ROW_HEIGHT;

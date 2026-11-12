@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import {
   CheckSquare, ChevronDown, ChevronUp, FolderOpen, GitCompare, Grid3X3, Link2, List, Palette,
   RefreshCw, Search, SlidersHorizontal, Square, Star, Tag, Trash2, Upload, UploadCloud, X, Clock3,
-  Download, Copy, Edit3, ChevronUp as ChevronUpIcon,
+  Download, Copy, Edit3, ChevronUp as ChevronUpIcon, Maximize2
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import toast from "react-hot-toast";
@@ -16,6 +16,7 @@ import { formatBytes, formatDate, getFileIcon, truncate } from "../utils/helpers
 import FilePreviewModal from "../components/FilePreviewModal";
 import AdvancedSearch from "../components/AdvancedSearch";
 import BulkTagEditor from "../components/BulkTagEditor";
+import BulkRenameModal from "../components/BulkRenameModal";
 import FileDiffViewer from "../components/FileDiffViewer";
 import { LabelDot, LabelFilterBar } from "../components/FileLabels";
 import { CreateSmartFolderModal, SmartFolderSidebar, useSmartFolders } from "../components/SmartFolders";
@@ -52,16 +53,16 @@ function groupMime(mime) {
 }
 
 // ── File Card with hover toolbar ─────────────────────────────────────────────
-function FileCard({ file, isSelected, selectMode, onToggle, onOpen, onStar, onQuickShare, onDownload, onDelete, onContextMenu }) {
+function FileCard({ file, isSelected, selectMode, isFocused, onToggle, onOpen, onStar, onQuickShare, onDownload, onDelete, onContextMenu }) {
   const accentColor = file.organizer?.color;
   const hasThumbnail = file.thumbnailUrl || (file.mimetype?.startsWith("image/") && file.url);
 
   return (
     <div
-      onClick={() => (selectMode ? onToggle(file._id) : onOpen(file))}
+      onClick={(e) => (selectMode ? onToggle(file._id, e) : onOpen(file))}
       onContextMenu={(e) => onContextMenu?.(e, file)}
       title={!selectMode ? "Click to preview · Right-click for menu" : undefined}
-      className={`card group cursor-pointer overflow-hidden transition-all duration-150 hover:border-surface-5 ${isSelected ? "border-brand/50 bg-brand/5" : ""}`}
+      className={`card group cursor-pointer overflow-hidden transition-all duration-150 hover:border-surface-5 ${isSelected ? "border-brand/50 bg-brand/5" : ""} ${isFocused ? "ring-2 ring-brand ring-offset-2 ring-offset-surface-0" : ""}`}
       style={accentColor ? { boxShadow: `inset 0 0 0 1px ${accentColor}55` } : undefined}
     >
       <div className="aspect-video bg-surface-2 flex items-center justify-center relative overflow-hidden">
@@ -140,7 +141,7 @@ function FileCard({ file, isSelected, selectMode, onToggle, onOpen, onStar, onQu
 }
 
 // ── File Row with hover toolbar + inline rename ─────────────────────────────
-function FileRow({ file, isSelected, selectMode, onToggle, onOpen, onStar, onQuickShare, onDownload, onDelete, onContextMenu, isRenaming, onRenameCommit, onRenameCancel }) {
+function FileRow({ file, isSelected, selectMode, isFocused, onToggle, onOpen, onStar, onQuickShare, onDownload, onDelete, onContextMenu, isRenaming, onRenameCommit, onRenameCancel }) {
   const accentColor = file.organizer?.color;
   const [editName, setEditName] = useState(file.originalName);
   const inputRef = useRef(null);
@@ -156,14 +157,14 @@ function FileRow({ file, isSelected, selectMode, onToggle, onOpen, onStar, onQui
 
   return (
     <div
-      onClick={() => (selectMode ? onToggle(file._id) : onOpen(file))}
+      onClick={(e) => (selectMode ? onToggle(file._id, e) : onOpen(file))}
       onContextMenu={(e) => onContextMenu?.(e, file)}
       title={!selectMode ? "Click to preview · Right-click for menu" : undefined}
-      className={`card p-3 flex items-center gap-3 group cursor-pointer hover:border-surface-5 transition-all duration-150 ${isSelected ? "border-brand/50 bg-brand/5" : ""}`}
+      className={`card p-3 flex items-center gap-3 group cursor-pointer hover:border-surface-5 transition-all duration-150 ${isSelected ? "border-brand/50 bg-brand/5" : ""} ${isFocused ? "ring-2 ring-brand ring-offset-2 ring-offset-surface-0" : ""}`}
       style={accentColor ? { boxShadow: `inset 3px 0 0 ${accentColor}` } : undefined}
     >
       {selectMode && (
-        <button onClick={(e) => { e.stopPropagation(); onToggle(file._id); }} className="flex-shrink-0">
+        <button onClick={(e) => { e.stopPropagation(); onToggle(file._id, e); }} className="flex-shrink-0">
           {isSelected ? <CheckSquare size={15} className="text-brand-glow" /> : <Square size={15} className="text-gray-600" />}
         </button>
       )}
@@ -283,13 +284,18 @@ export default function DashboardPage() {
   const [search, setSearch] = useState("");
   const [sortBy, setSortBy] = useState("createdAt:desc");
   const [viewMode, setViewMode] = useLocalStorage("vaultfs_view_mode", "grid");
+  const [gridSize, setGridSize] = useLocalStorage("vaultfs_grid_size", "md");
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState(null);
+  const [focusedFileId, setFocusedFileId] = useState(null);
+  
   const [labelFilter, setLabelFilter] = useState(null);
   const [organizerView, setOrganizerView] = useState("all");
   const [previewFile, setPreviewFile] = useState(null);
   const [showSearch, setShowSearch] = useState(false);
   const [showBulkTag, setShowBulkTag] = useState(false);
+  const [showBulkRename, setShowBulkRename] = useState(false);
   const [showDiff, setShowDiff] = useState(false);
   const [showSmartModal, setShowSmartModal] = useState(false);
   const [showSortMenu, setShowSortMenu] = useState(false);
@@ -306,6 +312,9 @@ export default function DashboardPage() {
 
   const organizer = useFileOrganizer(user?._id, files);
   const smartFolders = useSmartFolders(organizer.filesWithMeta);
+
+  // Map grid size string to px width
+  const gridMinWidth = gridSize === "sm" ? 140 : gridSize === "lg" ? 260 : 190;
 
   // ── Fetch files + stats ─────────────────────────────────────────────────
   const fetchFiles = useCallback(async (nextPage = 1) => {
@@ -443,19 +452,6 @@ export default function DashboardPage() {
     };
   }, [fetchFiles, refreshUser]);
 
-  // ── Keyboard shortcuts ───────────────────────────────────────────────────
-  useEffect(() => {
-    const handler = (event) => {
-      const target = event.target;
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
-      if (event.key === "f" || event.key === "F") { event.preventDefault(); searchInputRef.current?.focus(); }
-      if (event.key === "g" || event.key === "G") setViewMode("grid");
-      if (event.key === "l" || event.key === "L") setViewMode("list");
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [setViewMode]);
-
   // ── Derived ──────────────────────────────────────────────────────────────
   const filesAfterLabel = labelFilter
     ? smartFolders.filteredFiles.filter((file) => file.labels?.some((l) => l.name === labelFilter))
@@ -493,7 +489,7 @@ export default function DashboardPage() {
   if (labelFilter) activeFilters.push({ label: `Label: ${labelFilter}`, onRemove: () => setLabelFilter(null) });
   if (organizerView !== "all") activeFilters.push({ label: `View: ${ORGANIZER_VIEWS.find((v) => v.id === organizerView)?.label || organizerView}`, onRemove: () => setOrganizerView("all") });
 
-  // Storage donut
+  // Storage donut (MISSING PIECE RESTORED)
   const storageDonut = useMemo(() => {
     if (!stats?.byMimeType) return [];
     const groups = {};
@@ -506,16 +502,95 @@ export default function DashboardPage() {
       .sort((a, b) => b.value - a.value);
   }, [stats]);
 
+  // ── Keyboard Navigation ──────────────────────────────────────────────────
+  useEffect(() => {
+    const handler = (event) => {
+      const target = event.target;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable) return;
+      
+      if (event.key === "f" || event.key === "F") { event.preventDefault(); searchInputRef.current?.focus(); return; }
+      if (event.key === "g" || event.key === "G") { setViewMode("grid"); return; }
+      if (event.key === "l" || event.key === "L") { setViewMode("list"); return; }
+
+      // Arrow key navigation
+      if (["ArrowRight", "ArrowLeft", "ArrowDown", "ArrowUp"].includes(event.key)) {
+        event.preventDefault();
+        
+        // Calculate columns based on view
+        const cols = viewMode === "grid" 
+          ? Math.max(1, Math.floor((window.innerWidth - 350) / gridMinWidth)) 
+          : 1;
+
+        let currentIndex = filteredFiles.findIndex(f => f._id === focusedFileId);
+        if (currentIndex === -1) currentIndex = 0; // Default to first if none focused
+
+        let nextIndex = currentIndex;
+
+        if (event.key === "ArrowRight") nextIndex = Math.min(currentIndex + 1, filteredFiles.length - 1);
+        if (event.key === "ArrowLeft") nextIndex = Math.max(currentIndex - 1, 0);
+        if (event.key === "ArrowDown") nextIndex = Math.min(currentIndex + cols, filteredFiles.length - 1);
+        if (event.key === "ArrowUp") nextIndex = Math.max(currentIndex - cols, 0);
+
+        if (nextIndex !== currentIndex || !focusedFileId) {
+          const nextFile = filteredFiles[nextIndex];
+          if (nextFile) {
+            setFocusedFileId(nextFile._id);
+            // Scroll into view
+            const el = document.getElementById(`file-${nextFile._id}`);
+            if (el) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+          }
+        }
+      }
+
+      // Space or Enter
+      if (event.key === " " || event.key === "Enter") {
+        if (!focusedFileId) return;
+        event.preventDefault();
+        
+        const file = filteredFiles.find(f => f._id === focusedFileId);
+        if (!file) return;
+
+        if (event.key === " ") {
+          if (!selectMode) setSelectMode(true);
+          toggleSelect(file._id, { shiftKey: event.shiftKey });
+        } else if (event.key === "Enter") {
+          handleOpenPreview(file);
+        }
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [filteredFiles, viewMode, gridMinWidth, focusedFileId, selectMode]);
+
   // ── Handlers ─────────────────────────────────────────────────────────────
-  const toggleSelect = (id) => {
+  const toggleSelect = (id, event) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
+      
+      // Shift+Click range selection
+      if (event?.shiftKey && lastSelectedId) {
+        const currentIndex = filteredFiles.findIndex(f => f._id === id);
+        const lastIndex = filteredFiles.findIndex(f => f._id === lastSelectedId);
+        
+        if (currentIndex !== -1 && lastIndex !== -1) {
+          const start = Math.min(currentIndex, lastIndex);
+          const end = Math.max(currentIndex, lastIndex);
+          
+          for (let i = start; i <= end; i++) {
+            next.add(filteredFiles[i]._id);
+          }
+          return next;
+        }
+      }
+
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+    setLastSelectedId(id);
   };
+
   const selectAll = () => setSelectedIds(new Set(filteredFiles.map((f) => f._id)));
-  const clearSelect = () => { setSelectedIds(new Set()); setSelectMode(false); };
+  const clearSelect = () => { setSelectedIds(new Set()); setSelectMode(false); setLastSelectedId(null); };
 
   const handleOpenPreview = (file) => {
     organizer.markRecent(file);
@@ -766,6 +841,23 @@ export default function DashboardPage() {
               ))}
             </div>
 
+            {/* Grid Size Dropdown */}
+            {viewMode === "grid" && (
+              <div className="relative group">
+                <button className="btn-ghost px-2.5 py-2 flex items-center gap-1">
+                  <Maximize2 size={13} /> <span className="text-xs">{gridSize.toUpperCase()}</span>
+                </button>
+                <div className="absolute right-0 top-full mt-1 w-28 bg-surface-1 border border-surface-4 rounded-xl shadow-2xl z-20 overflow-hidden opacity-0 group-hover:opacity-100 pointer-events-none group-hover:pointer-events-auto transition-all">
+                  {["sm", "md", "lg"].map((sz) => (
+                    <button key={sz} onClick={() => setGridSize(sz)}
+                      className={`w-full px-3 py-2 text-xs text-left transition-colors ${gridSize === sz ? "bg-brand/10 text-brand-glow" : "text-gray-400 hover:bg-surface-3 hover:text-white"}`}>
+                      {sz === "sm" ? "Small" : sz === "lg" ? "Large" : "Medium"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <button onClick={() => setSelectMode((v) => !v)}
               className={`btn-ghost text-sm px-3 py-2 flex items-center gap-1.5 ${selectMode ? "bg-brand/10 text-brand-glow border-brand/20" : ""}`}>
               <CheckSquare size={13} /> {selectMode ? "Cancel" : "Select"}
@@ -873,42 +965,45 @@ export default function DashboardPage() {
               items={filteredFiles}
               viewMode={viewMode}
               loading={loading}
+              gridMinWidth={gridMinWidth}
               hasMore={page < (pagination.pages || 1)}
               onLoadMore={loadMore}
               emptyState={emptyState}
               renderItem={(file) => (
-                viewMode === "grid" ? (
-                  <FileCard
-                    key={file._id}
-                    file={file}
-                    isSelected={selectedIds.has(file._id)}
-                    selectMode={selectMode}
-                    onToggle={toggleSelect}
-                    onOpen={handleOpenPreview}
-                    onStar={handleStar}
-                    onQuickShare={handleQuickShare}
-                    onDownload={handleDownload}
-                    onDelete={handleDelete}
-                    onContextMenu={handleContextMenu}
-                  />
-                ) : (
-                  <FileRow
-                    key={file._id}
-                    file={file}
-                    isSelected={selectedIds.has(file._id)}
-                    selectMode={selectMode}
-                    onToggle={toggleSelect}
-                    onOpen={handleOpenPreview}
-                    onStar={handleStar}
-                    onQuickShare={handleQuickShare}
-                    onDownload={handleDownload}
-                    onDelete={handleDelete}
-                    onContextMenu={handleContextMenu}
-                    isRenaming={renamingId === file._id}
-                    onRenameCommit={handleRenameCommit}
-                    onRenameCancel={() => setRenamingId(null)}
-                  />
-                )
+                <div id={`file-${file._id}`} key={file._id}>
+                  {viewMode === "grid" ? (
+                    <FileCard
+                      file={file}
+                      isSelected={selectedIds.has(file._id)}
+                      selectMode={selectMode}
+                      isFocused={focusedFileId === file._id}
+                      onToggle={toggleSelect}
+                      onOpen={handleOpenPreview}
+                      onStar={handleStar}
+                      onQuickShare={handleQuickShare}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onContextMenu={handleContextMenu}
+                    />
+                  ) : (
+                    <FileRow
+                      file={file}
+                      isSelected={selectedIds.has(file._id)}
+                      selectMode={selectMode}
+                      isFocused={focusedFileId === file._id}
+                      onToggle={toggleSelect}
+                      onOpen={handleOpenPreview}
+                      onStar={handleStar}
+                      onQuickShare={handleQuickShare}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onContextMenu={handleContextMenu}
+                      isRenaming={renamingId === file._id}
+                      onRenameCommit={handleRenameCommit}
+                      onRenameCancel={() => setRenamingId(null)}
+                    />
+                  )}
+                </div>
               )}
             />
           )}
@@ -927,6 +1022,9 @@ export default function DashboardPage() {
             </button>
             <button onClick={() => setShowBulkTag(true)} className="btn-ghost text-xs px-2 py-1.5 flex items-center gap-1">
               <Tag size={12} /> Tag
+            </button>
+            <button onClick={() => setShowBulkRename(true)} className="btn-ghost text-xs px-2 py-1.5 flex items-center gap-1">
+              <Edit3 size={12} /> Rename
             </button>
             {canDiff && (
               <button onClick={() => setShowDiff(true)} className="btn-ghost text-xs px-2 py-1.5 flex items-center gap-1 text-brand-glow">
@@ -1026,6 +1124,10 @@ export default function DashboardPage() {
 
       {showBulkTag && (
         <BulkTagEditor selectedIds={[...selectedIds]} onComplete={() => fetchFiles(1)} onClose={() => setShowBulkTag(false)} />
+      )}
+
+      {showBulkRename && (
+        <BulkRenameModal selectedFiles={selectedFiles} onComplete={() => { fetchFiles(1); clearSelect(); }} onClose={() => setShowBulkRename(false)} />
       )}
 
       {showDiff && selectedFiles.length === 2 && (
