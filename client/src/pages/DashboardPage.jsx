@@ -3,7 +3,7 @@ import { useLocation } from "react-router-dom";
 import {
   CheckSquare, ChevronDown, ChevronUp, FolderOpen, GitCompare, Grid3X3, Link2, List, Palette,
   RefreshCw, Search, SlidersHorizontal, Square, Star, Tag, Trash2, Upload, UploadCloud, X, Clock3,
-  Download, Copy, Check, Edit3, ChevronUp as ChevronUpIcon,
+  Download, Copy, Edit3, ChevronUp as ChevronUpIcon,
 } from "lucide-react";
 import { ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import toast from "react-hot-toast";
@@ -843,27 +843,6 @@ export default function DashboardPage() {
               className="text-xs text-gray-600 hover:text-accent-red px-2 transition-colors">
               Clear all
             </button>
-          </div>
-        )}
-
-        {/* Recently viewed strip */}
-        {organizer.recentFiles.length > 0 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-1">
-            <span className="text-[10px] text-gray-600 uppercase tracking-wider flex-shrink-0 flex items-center gap-1">
-              <Clock3 size={10} /> Recent:
-            </span>
-            {organizer.recentFiles.slice(0, 6).map((file) => (
-              <button key={file._id}
-                onClick={() => handleOpenPreview(file)}
-                className="flex-shrink-0 w-14 h-14 rounded-lg border border-surface-4 bg-surface-2 overflow-hidden hover:border-brand/40 hover:scale-105 transition-all"
-                title={file.originalName}>
-                {file.thumbnailUrl ? (
-                  <img src={file.thumbnailUrl} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-xl">{getFileIcon(file.mimetype)}</div>
-                )}
-              </button>
-            ))}
           </div>
         )}
 
